@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# 运行lint检查
+npx eslint js/ --max-warnings=0
+
+# 运行格式化检查
+npx prettier --check "js/**/*.js" "*.html" "css/**/*.css"

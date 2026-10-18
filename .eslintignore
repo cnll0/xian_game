@@ -1,0 +1,19 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+build/
+
+# 类型定义输出
+dist/
+
+# 游戏资源
+assets/
+
+# IDE
+.vscode/
+
+# 系统
+.DS_Store
+Thumbs.db
