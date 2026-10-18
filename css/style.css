@@ -105,8 +105,28 @@ body {
     width: 76px; height: 76px; border-radius: 50%; border: 3px solid rgba(255,215,0,0.6);
     background: rgba(178,34,52,0.55); font-size: 30px; cursor: pointer; touch-action: none;
 }
+.world-hint {
+    position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
+    padding: 7px 12px; border-radius: 14px; background: rgba(12,10,16,0.72);
+    color: #f6e7c0; font-size: 12px; pointer-events: none; white-space: nowrap;
+}
+.interact-btn {
+    display: none; position: absolute; z-index: 7; right: 24px; bottom: 122px;
+    border: 1px solid #ffe17a; border-radius: 18px; padding: 10px 16px;
+    background: rgba(65,46,23,0.92); color: #fff0c2; font-weight: 700;
+    box-shadow: 0 0 18px rgba(255,205,89,0.35); cursor: pointer; touch-action: manipulation;
+}
+.interact-btn.visible { display: block; }
+.interact-btn small { margin-left: 6px; opacity: 0.72; }
 @media (pointer: coarse) {
     .atk-btn { display: block; }
+}
+@media (max-width: 620px) {
+    .npc-dialog { grid-template-columns: 96px minmax(0, 1fr); gap: 13px; padding: 16px !important; }
+    .npc-portrait-frame { min-height: 155px; }
+    .npc-portrait-frame canvas { min-height: 155px; }
+    .npc-dialog-heading h2 { font-size: 19px; }
+    .dungeon-choices, .techniques-list { grid-template-columns: 1fr; }
 }
 
 .action-bar {
@@ -132,6 +152,43 @@ body {
     font-size: 14px; font-weight: 600; color: var(--brown); cursor: pointer; text-align: left; transition: 0.15s;
 }
 .option-btn:hover { background: var(--brown); color: #fff; border-color: var(--brown); transform: translateX(4px); }
+
+.npc-dialog {
+    display: grid; grid-template-columns: minmax(170px, 250px) minmax(260px, 1fr);
+    gap: 22px; align-items: center; max-width: 760px !important; padding: 22px !important;
+    background: linear-gradient(135deg, #f6edda, #ded0b4) !important;
+}
+.npc-portrait-frame {
+    align-self: stretch; min-height: 250px; border-radius: 16px; overflow: hidden;
+    background: linear-gradient(180deg, #c3c3a1, #6b7969); box-shadow: inset 0 0 0 2px rgba(82,63,40,.35);
+}
+.npc-portrait-frame canvas { display: block; width: 100%; height: 100%; min-height: 250px; object-fit: contain; image-rendering: pixelated; }
+.npc-dialog-content { min-width: 0; }
+.npc-dialog-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.npc-dialog-heading h2 { color: var(--brown); margin: 3px 0; font-size: 23px; }
+.npc-dialog-heading small { color: var(--text-light); }
+#npcFaction { color: #8a6a3c; font-size: 11px; letter-spacing: .08em; }
+.npc-relation { flex: none; border-radius: 12px; background: #e7ddc5; padding: 5px 9px; color: #63523b; font-size: 12px; }
+.npc-relation.friendly { color: #256646; background: #d9ead8; }
+.npc-relation.hostile { color: #923d4b; background: #f2d6d4; }
+.npc-dialog .story-desc { margin: 15px 0; }
+.npc-leave { margin-top: 8px; }
+.dungeon-select-box, .techniques-box { max-width: 760px !important; }
+.dungeon-intro { margin-top: 7px; color: var(--text-light); font-size: 13px; line-height: 1.55; }
+.dungeon-choices, .techniques-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 18px; }
+.dungeon-choice, .technique-entry {
+    border: 1px solid #d5c6ac; border-radius: 15px; padding: 14px;
+    background: linear-gradient(145deg, #fffaf0, #e9dcc4); color: var(--brown);
+}
+.dungeon-choice h3, .technique-entry h3 { margin: 3px 0 6px; color: #563c24; }
+.dungeon-choice p, .technique-entry p { color: var(--text-light); font-size: 12px; line-height: 1.55; }
+.dungeon-choice .dungeon-rank { font-size: 11px; color: #927140; }
+.dungeon-choice button { width: 100%; margin-top: 11px; }
+.dungeon-choice.locked { filter: saturate(.45); opacity: .72; }
+.technique-entry { display: grid; grid-template-columns: 40px 1fr; gap: 9px; }
+.technique-entry .technique-icon { font-size: 29px; }
+.technique-entry small { color: #8b7045; }
+.techniques-empty { grid-column: 1 / -1; color: var(--text-light); padding: 28px; text-align: center; }
 
 .cards-box { text-align: center; max-width: 760px; }
 .cards-box h2 { color: var(--brown); margin-bottom: 16px; }

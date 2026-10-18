@@ -2,6 +2,7 @@
 
 const Engine = (function () {
     const W = 960, H = 540;
+    const WORLD_ZOOM = 1.35;
     const PAD = 24;
     let canvas, ctx;
     let raf = 0, lastTs = 0;
@@ -11,6 +12,7 @@ const Engine = (function () {
     const S = {
         running: false,
         state: 'idle',
+        storyDungeon: false,
         floor: 1,
         time: 0,
         player: null,
@@ -23,6 +25,18 @@ const Engine = (function () {
         scenery: [],
         landmarks: [],
         arena: [],
+        worldPlayer: null,
+        worldCamera: { x: 0, y: 0 },
+        worldDecor: [],
+        worldActors: [],
+        worldCreatures: [],
+        floorNpc: null,
+        pendingFloorClear: null,
+        npcPausedState: null,
+        worldZone: 'overworld',
+        worldEncounter: false,
+        worldSaveTimer: 0,
+        worldStoryPrompted: null,
         mapSeed: 1,
         portal: null,
         keys: {},
@@ -48,6 +62,7 @@ const Engine = (function () {
             player_west: 'assets/player/player_west.png',
             player_northwest: 'assets/player/player_northwest.png',
             player_southwest: 'assets/player/player_southwest.png',
+            npcSprites: 'assets/npc-sprites.svg',
             wolf: 'assets/wolf.png',
             brute: 'assets/brute.png',
             boss: 'assets/boss.png',
@@ -239,6 +254,8 @@ const Engine = (function () {
             S.keys[e.code] = true;
             if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].indexOf(e.code) >= 0) e.preventDefault();
             if ((e.code === 'KeyJ' || e.code === 'Space' || e.code === 'KeyZ') && S.running) tryAttack();
+            if ((e.code === 'KeyE' || e.code === 'Enter') && S.running &&
+                (S.state === 'world' || ((S.state === 'playing' || S.state === 'clear') && S.floorNpc))) interactStory();
         });
         window.addEventListener('keyup', e => { S.keys[e.code] = false; });
         canvas.addEventListener('mousemove', e => {
@@ -258,6 +275,8 @@ const Engine = (function () {
         let joyKnob = document.getElementById('joyKnob');
         let joyZone = document.getElementById('joyZone');
         let atkBtn = document.getElementById('atkBtn');
+        let interactBtn = document.getElementById('interactBtn');
+        if (interactBtn) interactBtn.addEventListener('click', interactStory);
         if (joyZone) {
             joyZone.addEventListener('touchstart', e => {
                 let t = e.changedTouches[0];
@@ -317,10 +336,15 @@ const Engine = (function () {
         }
     }
 
-function startRun() {
+function startRun(startFloor, storyDungeon, dungeonId, skirmish) {
         if (!G.created) return;
+        S.storyDungeon = storyDungeon === true;
+        S.skirmish = skirmish === true;
         G.flags.runs = (G.flags.runs || 0) + 1;
-        S.floor = 1;
+        S.dungeon = window.DUNGEONS.find(dungeon => dungeon.id === dungeonId) || window.DUNGEONS[0];
+        S.dungeonId = S.dungeon.id;
+        S.floorCount = S.dungeon.floorCount;
+        S.floor = Math.max(1, Number(startFloor) || 1);
         S.time = 0;
         S.mapSeed = Math.floor(Math.random() * 2147483646) + 1;
         S.noDeathRun = true;
@@ -343,7 +367,7 @@ function startRun() {
         S.player = {
             x: W / 2, y: H / 2,
             r: 16,
-            hp: G.maxHp,
+            hp: S.skirmish ? Math.min(G.hp, G.maxHp) : G.maxHp,
             maxHp: G.maxHp,
             facing: -Math.PI / 2,
             atkCd: 0,
@@ -378,10 +402,273 @@ function startRun() {
         };
         S.running = true;
         S.state = 'playing';
-        spawnFloor(1);
+        spawnFloor(S.floor);
         lastTs = 0;
         if (!raf) raf = requestAnimationFrame(loop);
         updateHUD();
+    }
+
+    function startWorld(resetPosition) {
+        if (!G.created) return;
+        if (resetPosition) {
+            S.worldPlayer = null;
+            S.worldZone = 'overworld';
+        }
+        if (!S.worldPlayer) {
+            S.worldZone = G.world && G.world.zone || 'overworld';
+            let start = window.STORY_LOCATIONS[G.story.node] || window.STORY_LOCATIONS.s0;
+            let saved = G.world || start;
+            S.worldPlayer = {
+                x: clamp(Number(saved.x) || start.x, 32, 3568),
+                y: clamp(Number(saved.y) || start.y, 32, 2368),
+                facing: Math.PI / 4,
+                walkT: 0,
+                vx: 0,
+                vy: 0,
+                anim: { fw: 64, fh: 64, cols: 8, frameTime: 0.1 }
+            };
+            createWorldDecor();
+        }
+        S.worldCamera.x = clamp(S.worldPlayer.x - W / (2 * WORLD_ZOOM), 0, 3600 - W / WORLD_ZOOM);
+        S.worldCamera.y = clamp(S.worldPlayer.y - H / (2 * WORLD_ZOOM), 0, 2400 - H / WORLD_ZOOM);
+        S.worldStoryPrompted = null;
+        S.running = true;
+        S.state = 'world';
+        lastTs = 0;
+        if (!raf) raf = requestAnimationFrame(loop);
+        updateHUD();
+    }
+
+    function startDungeonWorld(dungeonId) {
+        let dungeon = window.DUNGEONS.find(item => item.id === dungeonId);
+        if (!dungeon) throw new Error('Unknown dungeon: ' + dungeonId);
+        if (G.realm < dungeon.realmMin) {
+            toast('当前境界不足，无法进入' + dungeon.name, 'bad');
+            return false;
+        }
+        S.worldZone = dungeon.id;
+        S.dungeonId = dungeon.id;
+        S.worldPlayer = {
+            x: dungeon.position.x - 115,
+            y: dungeon.position.y + 130,
+            facing: -Math.PI / 2,
+            walkT: 0,
+            vx: 0,
+            vy: 0,
+            anim: { fw: 64, fh: 64, cols: 8, frameTime: 0.1 }
+        };
+        createWorldDecor();
+        S.worldCamera.x = clamp(S.worldPlayer.x - W / (2 * WORLD_ZOOM), 0, 3600 - W / WORLD_ZOOM);
+        S.worldCamera.y = clamp(S.worldPlayer.y - H / (2 * WORLD_ZOOM), 0, 2400 - H / WORLD_ZOOM);
+        S.worldStoryPrompted = null;
+        S.running = true;
+        S.state = 'world';
+        lastTs = 0;
+        if (!raf) raf = requestAnimationFrame(loop);
+        updateHUD();
+        toast('🌫️ 踏入' + dungeon.name + '，留意附近游荡的妖兽', 'gold');
+        saveGame(false);
+        return true;
+    }
+
+    function createWorldDecor() {
+        let seed = 74291;
+        const random = () => {
+            seed = (seed * 16807) % 2147483647;
+            return (seed - 1) / 2147483646;
+        };
+        S.worldDecor = [];
+        for (let i = 0; i < 820; i++) {
+            S.worldDecor.push({
+                x: 55 + random() * 3490,
+                y: 55 + random() * 2290,
+                size: 8 + random() * 17,
+                kind: random() > 0.1 ? 'tree' : 'rock'
+            });
+        }
+        createWorldActors();
+    }
+
+    function createWorldActors() {
+        let zone = S.worldZone || 'overworld';
+        S.worldActors = window.NPCS
+            .filter(npc => (npc.zone || 'overworld') === zone)
+            .map((npc, index) => ({
+                npc,
+                x: npc.x,
+                y: npc.y,
+                phase: index * 2.13,
+                roam: 8 + index % 4 * 3,
+                facing: (index % 8) * Math.PI / 4,
+                walkT: 0,
+                vx: 0,
+                vy: 0
+            }));
+        let dungeon = window.DUNGEONS.find(item => item.id === zone) || window.DUNGEONS[0];
+        let pool = Array.from(new Set(dungeon.floorPool.slice(0, Math.min(3, dungeon.floorPool.length)).flat()));
+        pool = pool.filter(id => !window.MONSTERS[id].boss && id !== 'elite');
+        if (!pool.length) pool = ['wolf', 'bat'];
+        let position = dungeon.position || { x: 900, y: 1390 };
+        let seed = 135791 + zone.length * 817;
+        const random = () => {
+            seed = (seed * 16807) % 2147483647;
+            return (seed - 1) / 2147483646;
+        };
+        S.worldCreatures = [];
+        let count = zone === 'overworld' ? 5 : 9;
+        for (let i = 0; i < count; i++) {
+            let angle = random() * Math.PI * 2;
+            let distance = 180 + random() * (zone === 'overworld' ? 850 : 500);
+            let monster = window.MONSTERS[pool[Math.floor(random() * pool.length)]];
+            S.worldCreatures.push({
+                id: monster.id,
+                img: monster.img,
+                name: monster.name,
+                x: clamp(position.x + Math.cos(angle) * distance, 80, 3520),
+                y: clamp(position.y + Math.sin(angle) * distance, 80, 2320),
+                homeX: position.x + Math.cos(angle) * distance,
+                homeY: position.y + Math.sin(angle) * distance,
+                phase: random() * Math.PI * 2,
+                r: monster.r,
+                draw: monster.draw,
+                tint: monster.tint || '#a9aa83',
+                speed: monster.speed,
+                bob: random() * Math.PI * 2
+            });
+        }
+    }
+
+    function interactStory() {
+        if (S.state === 'playing' || S.state === 'clear') return interactDungeonNpc();
+        if (S.state !== 'world' || !S.worldPlayer) return false;
+        let nearbyNpc = S.worldActors
+            .map(actor => ({ actor, distance: Math.hypot(S.worldPlayer.x - actor.x, S.worldPlayer.y - actor.y) }))
+            .sort((a, b) => a.distance - b.distance)[0];
+        if (nearbyNpc && nearbyNpc.distance < 105 && typeof window.onWorldNpcNearby === 'function') {
+            S.worldNpcPrompted = nearbyNpc.actor.npc.id;
+            window.onWorldNpcNearby(nearbyNpc.actor.npc);
+            return true;
+        }
+        let nearbyCreature = S.worldCreatures
+            .map(creature => ({ creature, distance: Math.hypot(S.worldPlayer.x - creature.x, S.worldPlayer.y - creature.y) }))
+            .sort((a, b) => a.distance - b.distance)[0];
+        if (nearbyCreature && nearbyCreature.distance < 95) {
+            toast('⚔️ 遭遇' + nearbyCreature.creature.name + '！', 'bad');
+            startRun(1, false, S.worldZone === 'overworld' ? 'qingyun' : S.worldZone, true);
+            return true;
+        }
+        if (!G.story) return false;
+        let location = window.STORY_LOCATIONS[G.story.node];
+        if (!location || Math.hypot(S.worldPlayer.x - location.x, S.worldPlayer.y - location.y) > 92) return false;
+        let node = getStoryNode(G.story.node);
+        if (!node || typeof window.onWorldStoryNearby !== 'function') return false;
+        S.worldStoryPrompted = node.id;
+        window.onWorldStoryNearby(node);
+        return true;
+    }
+
+    function interactDungeonNpc() {
+        if ((S.state !== 'playing' && S.state !== 'clear') || !S.player || !S.floorNpc || S.floorNpc.used) return false;
+        if (Math.hypot(S.player.x - S.floorNpc.x, S.player.y - S.floorNpc.y) > 88) return false;
+        if (typeof window.onDungeonNpcNearby !== 'function') return false;
+        S.floorNpc.used = true;
+        window.onDungeonNpcNearby(S.floorNpc.npc);
+        return true;
+    }
+
+    function pauseForNpcDialog() {
+        if (S.state !== 'world' && S.state !== 'playing' && S.state !== 'clear') return;
+        S.npcPausedState = S.state;
+        S.state = 'dialog';
+    }
+
+    function resumeFromNpcDialog() {
+        if (S.state !== 'dialog') return;
+        S.state = S.npcPausedState || 'world';
+        S.npcPausedState = null;
+        if (S.floorNpc) S.floorNpc.used = false;
+        if (S.pendingFloorClear !== null) {
+            let floor = S.pendingFloorClear;
+            S.pendingFloorClear = null;
+            if (S.floorNpc) S.floorNpc = null;
+            onFloorClear(floor);
+        }
+    }
+
+    function resolveDungeonNpcEncounter(choice) {
+        let encounter = S.floorNpc;
+        let player = S.player;
+        if (!encounter || !encounter.used || !player || !choice || !choice.effect) {
+            throw new Error('No active dungeon NPC encounter to resolve');
+        }
+        let effect = choice.effect;
+        let result;
+        if (effect.type === 'heal' || effect.type === 'healCult') {
+            let amount = Math.round(player.maxHp * effect.amount);
+            let restored = Math.min(amount, player.maxHp - player.hp);
+            player.hp += restored;
+            result = '恢复生命 ' + restored;
+            if (effect.type === 'healCult') {
+                gainCultivation(effect.cult);
+                result += '，修为+' + effect.cult;
+            }
+        } else if (effect.type === 'attack') {
+            player.mods.atk += effect.amount;
+            result = '本次秘境攻击+' + effect.amount;
+            S.effects.push({ type: 'evolution', x: player.x, y: player.y, color: '#ffd76a', t: 0, life: 0.8 });
+        } else if (effect.type === 'shield') {
+            let amount = Math.round(player.maxHp * effect.amount);
+            player.mods.shield = Math.max(1, player.mods.shield || 0);
+            player.shieldMax = Math.max(player.shieldMax || 0, amount);
+            player.shield = Math.min(player.maxHp, (player.shield || 0) + amount);
+            result = '获得护盾 ' + amount;
+            S.effects.push({ type: 'element', element: 'shield', x: player.x, y: player.y, t: 0, life: 0.65 });
+        } else if (effect.type === 'cult') {
+            gainCultivation(effect.amount);
+            result = '修为+' + effect.amount;
+        } else if (effect.type === 'speed') {
+            player.mods.speed += effect.amount;
+            result = '本次秘境速度+' + effect.amount;
+        } else if (effect.type === 'bloodPrice') {
+            let cost = Math.min(Math.max(0, player.hp - 1), Math.ceil(player.hp * effect.hp));
+            player.hp -= cost;
+            player.mods.atk += effect.attack;
+            result = '消耗生命 ' + cost + '，本次秘境攻击+' + effect.attack;
+        } else if (effect.type === 'riskCult') {
+            gainCultivation(effect.amount);
+            applyMonsterModifier('atkMul', 1.2);
+            for (let monster of S.monsters) monster.atk = Math.ceil(monster.atk * 1.2);
+            result = '修为+' + effect.amount + '，妖兽攻击提高20%直到本次秘境结束';
+        } else {
+            throw new Error('Unknown dungeon NPC effect: ' + effect.type);
+        }
+        if (typeof choice.favor === 'number') {
+            if (!G.npcRelations) G.npcRelations = {};
+            G.npcRelations[encounter.npc.id] = clamp(
+                (G.npcRelations[encounter.npc.id] || 0) + choice.favor, -100, 100);
+        }
+        floatText(player.x, player.y - 40, result, '#ffe27a');
+        toast(encounter.npc.name + ' · ' + result, 'gold');
+        S.floorNpc = null;
+        updateHUD();
+        saveGame(false);
+        return result;
+    }
+
+    function returnToOverworld() {
+        S.worldZone = 'overworld';
+        S.dungeonId = 'qingyun';
+        S.worldPlayer = S.worldPlayer || { x: 900, y: 1390, facing: 0, walkT: 0, vx: 0, vy: 0,
+            anim: { fw: 64, fh: 64, cols: 8, frameTime: 0.1 } };
+        S.worldPlayer.x = 900;
+        S.worldPlayer.y = 1390;
+        createWorldDecor();
+        S.worldCamera.x = clamp(S.worldPlayer.x - W / (2 * WORLD_ZOOM), 0, 3600 - W / WORLD_ZOOM);
+        S.worldCamera.y = clamp(S.worldPlayer.y - H / (2 * WORLD_ZOOM), 0, 2400 - H / WORLD_ZOOM);
+        S.running = true;
+        S.state = 'world';
+        updateHUD();
+        saveGame(false);
     }
 
     function stopRun() {
@@ -400,24 +687,46 @@ function startRun() {
         S.monsters = [];
         S.chests = [];
         S.portal = null;
+        S.floorNpc = null;
+        S.pendingFloorClear = null;
         let p = S.player;
         p.curseLastStandUsed = false;
         let playerStart = resolveArenaPosition(W / 2, H - 70, p.r);
         p.x = playerStart.x; p.y = playerStart.y;
         p.invuln = 1;
-        let pool = window.FLOOR_POOL[Math.min(floor, window.DUNGEON_FLOORS) - 1] || ['wolf'];
-        let isBossFloor = pool.indexOf('boss') >= 0;
+        let dungeon = S.dungeon || window.DUNGEONS[0];
+        let pool = dungeon.floorPool[Math.min(floor, dungeon.floorPool.length) - 1] || ['wolf'];
+        let isBossFloor = pool.some(id => window.MONSTERS[id] && window.MONSTERS[id].boss);
+        if (!S.skirmish && !isBossFloor) {
+            let event = (window.DUNGEON_NPC_EVENTS[dungeon.id] || []).find(item => item.floor === floor);
+            let npc = event && window.NPCS.find(item => item.id === event.npcId);
+            if (event && npc) {
+                S.floorNpc = {
+                    x: W / 2 + (Math.random() < 0.5 ? -1 : 1) * 170,
+                    y: H * 0.39,
+                    phase: Math.random() * Math.PI * 2,
+                    used: false,
+                    npc: Object.assign({}, npc, {
+                        dungeonEncounter: true,
+                        title: event.title,
+                        greeting: event.line,
+                        choices: event.choices
+                    })
+                };
+            }
+        }
         let baseCount = isBossFloor ? 1 :
             3 + Math.floor(floor * 0.7) + Math.min(4, S.monsterMods.cntAdd);
         for (let i = 0; i < baseCount; i++) {
             let tid = pool[Math.floor(Math.random() * pool.length)];
-            if (S.monsterMods.forceElite && i === 0 && floor < window.DUNGEON_FLOORS) tid = 'elite';
+            if (S.monsterMods.forceElite && i === 0 && floor < S.floorCount) tid = 'elite';
             let base = window.MONSTERS[tid];
-            let hpMul = (1 + (floor - 1) * 0.28) * S.monsterMods.hpMul;
-            let atkMul = (1 + (floor - 1) * 0.15) * S.monsterMods.atkMul;
+            let hpMul = dungeon.hpScale * (1 + (floor - 1) * 0.28) * S.monsterMods.hpMul;
+            let atkMul = dungeon.atkScale * (1 + (floor - 1) * 0.15) * S.monsterMods.atkMul;
             let spdMul = S.monsterMods.spdMul;
             let m = {
                 id: base.id, name: base.name, img: base.img,
+                boss: !!base.boss,
                 hp: Math.round(base.hp * hpMul),
                 maxHp: Math.round(base.hp * hpMul),
                 atk: Math.round(base.atk * atkMul),
@@ -454,12 +763,12 @@ function startRun() {
             };
             S.monsters.push(m);
         }
-        let chestCount = floor < window.DUNGEON_FLOORS ? (Math.random() < 0.7 ? 1 : 2) : 0;
+        let chestCount = floor < S.floorCount ? (Math.random() < 0.7 ? 1 : 2) : 0;
         for (let i = 0; i < chestCount; i++) {
             S.chests.push(Object.assign(randomArenaPosition(PAD + 35, H - PAD - 35, 20), { opened: false }));
         }
         if (G.flags.maxFloor < floor) { G.flags.maxFloor = floor; checkAchievements(); }
-        toast('🏰 第' + floor + '层 · ' + (window.FLOOR_NAMES[floor - 1] || '深处'), 'gold');
+        toast('🏰 ' + dungeon.name + ' · 第' + floor + '/' + S.floorCount + '层 · ' + (window.FLOOR_NAMES[floor - 1] || '深处'), 'gold');
         updateHUD();
         if (floor > 1) showDualCardChoice();
     }
@@ -858,12 +1167,108 @@ function startRun() {
         throw new Error('Unknown unique curse gift: ' + card.id);
     }
 
+    function updateWorld(dt) {
+        if (!S.worldPlayer) return;
+        S.time += dt;
+        let p = S.worldPlayer;
+        let mx = 0, my = 0;
+        if (S.keys['KeyW'] || S.keys['ArrowUp']) my -= 1;
+        if (S.keys['KeyS'] || S.keys['ArrowDown']) my += 1;
+        if (S.keys['KeyA'] || S.keys['ArrowLeft']) mx -= 1;
+        if (S.keys['KeyD'] || S.keys['ArrowRight']) mx += 1;
+        if (S.joystick.active) { mx += S.joystick.dx; my += S.joystick.dy; }
+        let length = Math.hypot(mx, my);
+        if (length > 1) { mx /= length; my /= length; }
+        p.vx = mx;
+        p.vy = my;
+        if (length > 0.05) {
+            let speed = Math.max(1.5, G.speed || 3.2) * 60;
+            p.x = clamp(p.x + mx * speed * dt, 32, 3568);
+            p.y = clamp(p.y + my * speed * dt, 32, 2368);
+            p.facing = Math.atan2(my, mx);
+            p.walkT += dt;
+        }
+        let targetX = clamp(p.x - W / (2 * WORLD_ZOOM), 0, 3600 - W / WORLD_ZOOM);
+        let targetY = clamp(p.y - H / (2 * WORLD_ZOOM), 0, 2400 - H / WORLD_ZOOM);
+        let cameraEase = 1 - Math.exp(-dt * 8);
+        S.worldCamera.x += (targetX - S.worldCamera.x) * cameraEase;
+        S.worldCamera.y += (targetY - S.worldCamera.y) * cameraEase;
+        G.world = { x: Math.round(p.x), y: Math.round(p.y), zone: S.worldZone || 'overworld' };
+        for (let actor of S.worldActors) {
+            let previousX = actor.x, previousY = actor.y;
+            actor.x = actor.npc.x + Math.cos(S.time * 0.38 + actor.phase) * actor.roam;
+            actor.y = actor.npc.y + Math.sin(S.time * 0.31 + actor.phase) * actor.roam * 0.45;
+            actor.vx = dt > 0 ? (actor.x - previousX) / dt : 0;
+            actor.vy = dt > 0 ? (actor.y - previousY) / dt : 0;
+            if (Math.hypot(actor.vx, actor.vy) > 0.1) {
+                actor.facing = Math.atan2(actor.vy, actor.vx);
+                actor.walkT += dt;
+            }
+        }
+        for (let creature of S.worldCreatures) {
+            let dx = p.x - creature.x, dy = p.y - creature.y;
+            let distance = Math.hypot(dx, dy) || 1;
+            let driftX = Math.cos(S.time * 0.55 + creature.phase) * 22;
+            let driftY = Math.sin(S.time * 0.48 + creature.phase) * 18;
+            let chase = distance < 250 ? 12 : 0;
+            creature.x = clamp(creature.homeX + driftX + (distance < 250 ? dx / distance * chase * dt : 0), 60, 3540);
+            creature.y = clamp(creature.homeY + driftY + (distance < 250 ? dy / distance * chase * dt : 0), 60, 2340);
+            creature.bob += dt;
+        }
+        let npcNear = S.worldActors
+            .map(actor => ({ actor, distance: Math.hypot(p.x - actor.x, p.y - actor.y) }))
+            .sort((a, b) => a.distance - b.distance)[0];
+        let creatureNear = S.worldCreatures
+            .map(creature => ({ creature, distance: Math.hypot(p.x - creature.x, p.y - creature.y) }))
+            .sort((a, b) => a.distance - b.distance)[0];
+        let nearbyNpc = npcNear && npcNear.distance < 100 ? npcNear.actor.npc : null;
+        let nearbyCreature = !nearbyNpc && creatureNear && creatureNear.distance < 90 ? creatureNear.creature : null;
+        let interactBtn = document.getElementById('interactBtn');
+        let dungeonBtn = document.getElementById('btnDungeon');
+        if (dungeonBtn) dungeonBtn.textContent = S.worldZone === 'overworld' ? '🏰 探索秘境' : '↩ 返回青云山';
+        if (interactBtn) {
+            interactBtn.classList.toggle('visible', !!nearbyNpc || !!nearbyCreature);
+            interactBtn.innerHTML = nearbyNpc ? '💬 与 ' + nearbyNpc.name + ' 交谈 <small>E</small>' :
+                nearbyCreature ? '⚔️ 接近 ' + nearbyCreature.name + ' <small>E</small>' : '📜 触发剧情 <small>E</small>';
+        }
+        if (nearbyNpc && S.worldNpcPrompted !== nearbyNpc.id &&
+            typeof window.onWorldNpcNearby === 'function') {
+            S.worldNpcPrompted = nearbyNpc.id;
+            window.onWorldNpcNearby(nearbyNpc);
+        } else if (!nearbyNpc && npcNear && npcNear.distance > 150) {
+            S.worldNpcPrompted = null;
+        }
+        S.worldSaveTimer += dt;
+        if (S.worldSaveTimer >= 5) {
+            S.worldSaveTimer = 0;
+            saveGame(false);
+        }
+
+        let location = G.story && window.STORY_LOCATIONS[G.story.node];
+        let nearby = location && Math.hypot(p.x - location.x, p.y - location.y) <= 92;
+        let nearbyStory = !!nearby && !nearbyNpc && !nearbyCreature;
+        if (interactBtn) {
+            interactBtn.classList.toggle('visible', !!nearbyNpc || !!nearbyCreature || nearbyStory);
+            if (!nearbyNpc && !nearbyCreature && nearbyStory) {
+                interactBtn.innerHTML = '📜 触发剧情 <small>E</small>';
+            }
+        }
+        if (nearbyStory && S.worldStoryPrompted !== G.story.node &&
+            typeof window.onWorldStoryNearby === 'function') {
+            S.worldStoryPrompted = G.story.node;
+            window.onWorldStoryNearby(getStoryNode(G.story.node));
+        }
+    }
+
     function loop(ts) {
         raf = requestAnimationFrame(loop);
         if (!lastTs) lastTs = ts;
         let dt = Math.min(0.05, (ts - lastTs) / 1000);
         lastTs = ts;
-        if (S.running) update(dt);
+        if (S.running) {
+            if (S.state === 'world') updateWorld(dt);
+            else update(dt);
+        }
         draw();
     }
 
@@ -995,6 +1400,18 @@ function startRun() {
                     S.effects.push({ type: 'hit', x: m.x, y: m.y, color: '#bba1ff', t: 0, life: 0.24 });
                     if (m.hp <= 0) killMonster(m);
                 }
+            }
+        }
+
+        let interactBtn = document.getElementById('interactBtn');
+        let nearbyDungeonNpc = S.floorNpc && !S.floorNpc.used &&
+            Math.hypot(p.x - S.floorNpc.x, p.y - S.floorNpc.y) < 92;
+        if (interactBtn) {
+            interactBtn.classList.toggle('visible', !!nearbyDungeonNpc);
+            if (nearbyDungeonNpc) {
+                interactBtn.innerHTML = '💬 与 ' + S.floorNpc.npc.name + ' 交谈 <small>E</small>';
+            } else if (!S.floorNpc && S.state === 'playing') {
+                interactBtn.classList.remove('visible');
             }
         }
 
@@ -1140,7 +1557,7 @@ function startRun() {
                 }
             }
 
-            if (m.id === 'boss' && m.shootCd <= 0) {
+            if (m.boss && m.shootCd <= 0) {
                 m.shootCd = 2.4;
                 let n = 10;
                 let off = Math.random() * Math.PI * 2;
@@ -1201,7 +1618,13 @@ function startRun() {
         if (S.monsters.length === 0 && S.state === 'playing') {
             S.state = 'clear';
             S.portal = { x: W / 2, y: PAD + 70, t: 0 };
-            onFloorClear(S.floor);
+            if (S.floorNpc && !S.floorNpc.used && typeof window.onDungeonNpcNearby === 'function') {
+                S.pendingFloorClear = S.floor;
+                S.floorNpc.used = true;
+                window.onDungeonNpcNearby(S.floorNpc.npc);
+            } else {
+                onFloorClear(S.floor);
+            }
         }
         if (S.portal) S.portal.t += dt;
     }
@@ -1610,7 +2033,7 @@ function startRun() {
     }
 
     function nextFloor() {
-        if (S.floor >= window.DUNGEON_FLOORS) {
+        if (S.floor >= S.floorCount) {
             finishRun(true);
             return;
         }
@@ -1623,16 +2046,25 @@ function startRun() {
         S.running = false;
         S.state = 'idle';
         if (cleared) {
-            G.flags.clears = (G.flags.clears || 0) + 1;
-            if (S.noDeathRun) {
-                G.flags.noDeathClear = (G.flags.noDeathClear || 0) + 1;
+            if (S.skirmish) {
+                let reward = 15 + S.floor * 3;
+                gainCultivation(reward);
+                G.hp = S.player ? Math.max(1, S.player.hp) : G.hp;
+                toast('⚔️ 击退妖兽，修为+' + reward, 'good');
+                saveGame(false);
+            } else {
+                G.flags.clears = (G.flags.clears || 0) + 1;
+                if (S.noDeathRun) G.flags.noDeathClear = (G.flags.noDeathClear || 0) + 1;
+                gainCultivation(150 + S.floor * 15);
+                toast('👑 秘境通关！奖励修为+' + (150 + S.floor * 15), 'gold');
+                G.hp = S.player ? S.player.hp : G.maxHp;
+                checkAchievements();
+                if (typeof window.learnDungeonTechnique === 'function') {
+                    window.learnDungeonTechnique(S.dungeonId);
+                }
+                saveGame(true);
+                onRunClear();
             }
-            gainCultivation(150 + S.floor * 15);
-            toast('👑 秘境通关！奖励修为+' + (150 + S.floor * 15), 'gold');
-            G.hp = S.player ? S.player.hp : G.maxHp;
-            checkAchievements();
-            saveGame(true);
-            onRunClear();
         }
     }
 
@@ -2023,6 +2455,12 @@ function startRun() {
         }
         ctx.fillStyle = theme.tint;
         ctx.fillRect(PAD, PAD, W - PAD * 2, H - PAD * 2);
+        if (S.dungeon) {
+            ctx.globalAlpha = 0.12;
+            ctx.fillStyle = S.dungeon.color;
+            ctx.fillRect(PAD, PAD, W - PAD * 2, H - PAD * 2);
+            ctx.globalAlpha = 1;
+        }
         ctx.fillStyle = 'rgba(7,4,12,0.38)';
         ctx.fillRect(PAD, PAD, W - PAD * 2, H - PAD * 2);
         let haze = ctx.createRadialGradient(W / 2, H / 2, 70, W / 2, H / 2, 520);
@@ -2597,14 +3035,418 @@ function startRun() {
         }
     }
 
+    function drawWorldMap() {
+        let camera = S.worldCamera;
+        let p = S.worldPlayer;
+        let pulse = 0.5 + Math.sin(S.time * 2.2) * 0.5;
+
+        ctx.fillStyle = '#26382a';
+        ctx.fillRect(0, 0, W, H);
+        ctx.save();
+        ctx.scale(WORLD_ZOOM, WORLD_ZOOM);
+        ctx.translate(-camera.x, -camera.y);
+        let ground = ctx.createLinearGradient(0, 0, 1800, 2400);
+        ground.addColorStop(0, '#47583d');
+        ground.addColorStop(0.42, '#596545');
+        ground.addColorStop(1, '#39483a');
+        ctx.fillStyle = ground;
+        ctx.fillRect(0, 0, 3600, 2400);
+        if (S.worldZone !== 'overworld') {
+            let dungeon = window.DUNGEONS.find(item => item.id === S.worldZone);
+            if (dungeon) {
+                ctx.globalAlpha = 0.16;
+                ctx.fillStyle = dungeon.color;
+                ctx.fillRect(0, 0, 3600, 2400);
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        const paintRidge = (x, y, rx, ry, color) => {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.ellipse(x, y, rx, ry, -0.35, 0, Math.PI * 2);
+            ctx.fill();
+        };
+        paintRidge(2910, 450, 740, 470, 'rgba(53,62,72,0.62)');
+        paintRidge(2520, 800, 430, 390, 'rgba(76,85,83,0.52)');
+        paintRidge(1560, 180, 730, 310, 'rgba(71,83,72,0.44)');
+        paintRidge(790, 360, 340, 520, 'rgba(76,86,70,0.4)');
+
+        const drawMountain = (x, y, size, shade) => {
+            ctx.fillStyle = 'rgba(19,29,29,0.25)';
+            ctx.beginPath();
+            ctx.ellipse(x + 10, y + size * 0.42, size * 0.77, size * 0.24, -0.1, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = shade;
+            ctx.beginPath();
+            ctx.moveTo(x - size * 0.76, y + size * 0.4);
+            ctx.lineTo(x - size * 0.18, y - size * 0.52);
+            ctx.lineTo(x + size * 0.1, y - size * 0.05);
+            ctx.lineTo(x + size * 0.43, y - size * 0.68);
+            ctx.lineTo(x + size * 0.82, y + size * 0.4);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = 'rgba(27,41,42,0.25)';
+            ctx.beginPath();
+            ctx.moveTo(x + size * 0.1, y - size * 0.05);
+            ctx.lineTo(x + size * 0.43, y - size * 0.68);
+            ctx.lineTo(x + size * 0.82, y + size * 0.4);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = 'rgba(224,224,204,0.66)';
+            ctx.beginPath();
+            ctx.moveTo(x + size * 0.31, y - size * 0.43);
+            ctx.lineTo(x + size * 0.43, y - size * 0.68);
+            ctx.lineTo(x + size * 0.59, y - size * 0.24);
+            ctx.lineTo(x + size * 0.46, y - size * 0.31);
+            ctx.lineTo(x + size * 0.4, y - size * 0.17);
+            ctx.closePath();
+            ctx.fill();
+        };
+        drawMountain(2980, 490, 260, '#606b68');
+        drawMountain(2730, 590, 210, '#69736c');
+        drawMountain(3200, 720, 230, '#545e60');
+        drawMountain(2510, 850, 170, '#71776b');
+        drawMountain(2080, 285, 150, '#72796a');
+        drawMountain(820, 650, 165, '#697260');
+
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(1110, 2400);
+        ctx.bezierCurveTo(1290, 2190, 720, 2060, 830, 1840);
+        ctx.bezierCurveTo(915, 1670, 1480, 1710, 1430, 1460);
+        ctx.bezierCurveTo(1385, 1260, 1080, 1230, 1310, 1040);
+        ctx.bezierCurveTo(1520, 870, 2090, 1040, 2190, 810);
+        ctx.bezierCurveTo(2290, 590, 2040, 455, 1890, 355);
+        ctx.strokeStyle = 'rgba(34,42,32,0.3)';
+        ctx.lineWidth = 49;
+        ctx.stroke();
+        ctx.strokeStyle = '#b29b70';
+        ctx.lineWidth = 37;
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(207,186,142,0.4)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([7, 18]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.beginPath();
+        ctx.moveTo(140, 1120);
+        ctx.bezierCurveTo(410, 950, 650, 1090, 920, 900);
+        ctx.bezierCurveTo(1160, 730, 1300, 810, 1560, 670);
+        ctx.strokeStyle = 'rgba(34,42,32,0.25)';
+        ctx.lineWidth = 31;
+        ctx.stroke();
+        ctx.strokeStyle = '#a99571';
+        ctx.lineWidth = 22;
+        ctx.stroke();
+        ctx.restore();
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(2430, 2400);
+        ctx.bezierCurveTo(2300, 2180, 2600, 2020, 2450, 1810);
+        ctx.bezierCurveTo(2310, 1600, 2600, 1420, 2500, 1220);
+        ctx.bezierCurveTo(2390, 1010, 2710, 900, 2650, 720);
+        ctx.bezierCurveTo(2580, 520, 2810, 390, 2910, 215);
+        ctx.lineTo(3020, 245);
+        ctx.bezierCurveTo(2910, 460, 2730, 570, 2770, 760);
+        ctx.bezierCurveTo(2820, 980, 2520, 1080, 2630, 1290);
+        ctx.bezierCurveTo(2760, 1510, 2440, 1680, 2580, 1880);
+        ctx.bezierCurveTo(2740, 2110, 2420, 2240, 2560, 2400);
+        ctx.closePath();
+        ctx.fillStyle = '#426c76';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(176,218,209,0.5)';
+        ctx.lineWidth = 8;
+        ctx.stroke();
+        ctx.restore();
+
+        for (let decor of S.worldDecor) {
+            if (decor.kind === 'tree') {
+                ctx.fillStyle = 'rgba(20,30,22,0.28)';
+                ctx.beginPath();
+                ctx.ellipse(decor.x + 7, decor.y + 15, decor.size * 1.32, decor.size * 0.75, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#54432e';
+                ctx.fillRect(decor.x - 3, decor.y + decor.size * 0.1, 6, decor.size * 1.12);
+                ctx.fillStyle = decor.size > 18 ? '#334d35' : '#3d5d3b';
+                ctx.beginPath();
+                ctx.arc(decor.x, decor.y, decor.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.arc(decor.x - decor.size * 0.54, decor.y + decor.size * 0.18, decor.size * 0.63, 0, Math.PI * 2);
+                ctx.arc(decor.x + decor.size * 0.55, decor.y + decor.size * 0.13, decor.size * 0.66, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'rgba(151,174,105,0.23)';
+                ctx.beginPath();
+                ctx.arc(decor.x - decor.size * 0.27, decor.y - decor.size * 0.31, decor.size * 0.47, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                ctx.fillStyle = '#727366';
+                ctx.beginPath();
+                ctx.ellipse(decor.x, decor.y, decor.size * 1.1, decor.size * 0.65, -0.2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'rgba(213,207,179,0.2)';
+                ctx.beginPath();
+                ctx.ellipse(decor.x - 2, decor.y - 3, decor.size * 0.55, decor.size * 0.24, -0.2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        for (let i = 0; i < 3600; i++) {
+            let gx = (i * 149 + (i % 7) * 37) % 3600;
+            let gy = (i * 263 + (i % 11) * 19) % 2400;
+            let wave = Math.sin(i * 12.31) * 2;
+            ctx.strokeStyle = i % 5 === 0 ? 'rgba(196,184,113,0.32)' : 'rgba(175,190,123,0.25)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(gx, gy);
+            ctx.lineTo(gx + wave, gy - 4 - (i % 5));
+            ctx.stroke();
+        }
+
+        for (let id of Object.keys(window.STORY_LOCATIONS)) {
+            let loc = window.STORY_LOCATIONS[id];
+            ctx.save();
+            ctx.translate(loc.x, loc.y);
+            ctx.globalAlpha = G.story && G.story.done && G.story.done.indexOf(id) >= 0 ? 0.82 : 1;
+            if (loc.kind === 'village') {
+                const house = (x, y, scale, roof) => {
+                    ctx.fillStyle = 'rgba(22,28,21,0.3)';
+                    ctx.fillRect(x - 22 * scale + 4, y + 12 * scale, 48 * scale, 10 * scale);
+                    ctx.fillStyle = '#b99a6d';
+                    ctx.fillRect(x - 22 * scale, y - 13 * scale, 44 * scale, 27 * scale);
+                    ctx.fillStyle = '#764936';
+                    ctx.beginPath();
+                    ctx.moveTo(x - 27 * scale, y - 11 * scale);
+                    ctx.lineTo(x, y - 34 * scale);
+                    ctx.lineTo(x + 27 * scale, y - 11 * scale);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.fillStyle = roof;
+                    ctx.fillRect(x - 5 * scale, y - 2 * scale, 10 * scale, 16 * scale);
+                    ctx.fillStyle = '#e1c58e';
+                    ctx.fillRect(x - 17 * scale, y - 5 * scale, 7 * scale, 7 * scale);
+                };
+                house(-45, 0, 0.9, '#4c6b50');
+                house(35, -38, 0.75, '#87543e');
+                house(73, 20, 0.65, '#586c4b');
+                ctx.strokeStyle = '#c5aa75';
+                ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.moveTo(-85, 48); ctx.quadraticCurveTo(-15, 28, 62, 56); ctx.stroke();
+                ctx.fillStyle = '#d2b86e';
+                ctx.beginPath(); ctx.arc(0, 48, 5, 0, Math.PI * 2); ctx.fill();
+            } else if (loc.kind === 'tree') {
+                ctx.fillStyle = 'rgba(32,31,22,0.28)';
+                ctx.beginPath(); ctx.ellipse(0, 19, 54, 17, 0, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#51402c';
+                ctx.fillRect(-7, -29, 14, 57);
+                ctx.fillRect(-29, -9, 9, 21);
+                ctx.strokeStyle = '#796041'; ctx.lineWidth = 5;
+                ctx.beginPath(); ctx.moveTo(-3, -14); ctx.lineTo(-31, -39); ctx.moveTo(3, -19); ctx.lineTo(27, -45); ctx.stroke();
+                for (let leaf of [[-25,-37,23],[-3,-49,30],[24,-37,25],[5,-25,28]]) {
+                    ctx.fillStyle = leaf[2] > 27 ? '#405d3b' : '#4c6b43';
+                    ctx.beginPath(); ctx.arc(leaf[0], leaf[1], leaf[2], 0, Math.PI * 2); ctx.fill();
+                    ctx.fillStyle = 'rgba(170,183,109,0.22)';
+                    ctx.beginPath(); ctx.arc(leaf[0] - 7, leaf[1] - 7, leaf[2] * 0.4, 0, Math.PI * 2); ctx.fill();
+                }
+                ctx.fillStyle = '#806d57';
+                ctx.beginPath(); ctx.ellipse(2, 31, 6, 8, 0, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#c1aa7a';
+                ctx.beginPath(); ctx.arc(2, 21, 4, 0, Math.PI * 2); ctx.fill();
+            } else if (loc.kind === 'gate' || loc.kind === 'sect') {
+                let scale = loc.kind === 'gate' ? 1.1 : 1.35;
+                ctx.fillStyle = 'rgba(22,28,21,0.28)';
+                ctx.beginPath(); ctx.ellipse(0, 24, 74 * scale, 22 * scale, 0, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#887356';
+                ctx.fillRect(-49 * scale, -17 * scale, 11 * scale, 55 * scale);
+                ctx.fillRect(38 * scale, -17 * scale, 11 * scale, 55 * scale);
+                ctx.fillStyle = '#9b4c39';
+                ctx.fillRect(-57 * scale, -23 * scale, 114 * scale, 10 * scale);
+                ctx.fillStyle = '#d0b77b';
+                ctx.fillRect(-63 * scale, -31 * scale, 126 * scale, 8 * scale);
+                ctx.fillStyle = '#614534';
+                ctx.beginPath();
+                ctx.moveTo(-68 * scale, -31 * scale); ctx.lineTo(0, -63 * scale); ctx.lineTo(68 * scale, -31 * scale);
+                ctx.closePath(); ctx.fill();
+                ctx.fillStyle = '#b8a77e';
+                ctx.fillRect(-8 * scale, -5 * scale, 16 * scale, 43 * scale);
+                ctx.fillStyle = '#e2cf9f'; ctx.font = 'bold 13px serif'; ctx.textAlign = 'center';
+                ctx.fillText(loc.kind === 'gate' ? '青云' : '仙门', 0, -38 * scale);
+                ctx.strokeStyle = '#918366'; ctx.lineWidth = 6;
+                ctx.beginPath(); ctx.moveTo(-115, 51); ctx.lineTo(-53, 35); ctx.moveTo(55, 36); ctx.lineTo(116, 54); ctx.stroke();
+            } else if (loc.kind === 'arena') {
+                ctx.fillStyle = '#8e7957';
+                ctx.beginPath(); ctx.ellipse(0, 9, 58, 35, 0, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#b29a6c';
+                ctx.beginPath(); ctx.ellipse(0, 4, 45, 25, 0, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = '#735d43'; ctx.lineWidth = 4;
+                ctx.beginPath(); ctx.ellipse(0, 4, 33, 18, 0, 0, Math.PI * 2); ctx.stroke();
+                for (let side of [-1, 1]) {
+                    for (let row = 0; row < 3; row++) {
+                        ctx.fillStyle = row % 2 ? '#899078' : '#a08a63';
+                        ctx.fillRect(side * (49 + row * 14) - 8, -10 + row * 11, 16, 9);
+                    }
+                }
+                ctx.fillStyle = '#c9a467';
+                for (let flag of [-1, 1]) {
+                    ctx.fillRect(flag * 74 - 2, -54, 4, 50);
+                    ctx.beginPath(); ctx.moveTo(flag * 74, -53); ctx.lineTo(flag * 55, -42); ctx.lineTo(flag * 74, -33); ctx.fill();
+                }
+            } else if (loc.kind === 'portal') {
+                ctx.fillStyle = '#605747';
+                ctx.beginPath();
+                ctx.moveTo(-55, 19); ctx.lineTo(-43, -22); ctx.lineTo(-25, -41);
+                ctx.lineTo(-7, -23); ctx.lineTo(11, -52); ctx.lineTo(32, -29);
+                ctx.lineTo(51, 19); ctx.closePath(); ctx.fill();
+                ctx.fillStyle = '#85816b';
+                ctx.beginPath(); ctx.moveTo(-43,-22); ctx.lineTo(-25,-41); ctx.lineTo(-7,-23); ctx.closePath(); ctx.fill();
+                ctx.fillStyle = 'rgba(45,114,133,0.34)';
+                ctx.beginPath(); ctx.ellipse(0, 6, 19, 34, 0, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = '#79ccd0'; ctx.shadowColor = '#5bd1df'; ctx.shadowBlur = 16 + pulse * 10;
+                ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(0, 6, 19, 34, 0, 0, Math.PI * 2); ctx.stroke();
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = '#829182'; ctx.fillRect(-62, 22, 124, 8);
+            }
+
+            ctx.restore();
+        }
+
+        for (let dungeon of window.DUNGEONS) {
+            if (S.worldZone !== 'overworld' && S.worldZone !== dungeon.id) continue;
+            let location = dungeon.position;
+            ctx.save();
+            ctx.translate(location.x, location.y);
+            ctx.fillStyle = 'rgba(24,30,28,0.27)';
+            ctx.beginPath(); ctx.ellipse(0, 24, 70, 20, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = S.worldZone === dungeon.id ? '#77766c' : '#625e52';
+            ctx.beginPath();
+            ctx.moveTo(-60, 20); ctx.lineTo(-47, -19); ctx.lineTo(-25, -43); ctx.lineTo(-8, -22);
+            ctx.lineTo(12, -54); ctx.lineTo(36, -28); ctx.lineTo(58, 20); ctx.closePath(); ctx.fill();
+            ctx.fillStyle = 'rgba(46,83,91,0.48)';
+            ctx.beginPath(); ctx.ellipse(0, 2, 18, 30, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = dungeon.color;
+            ctx.globalAlpha = S.worldZone === dungeon.id ? 0.88 : 0.44;
+            ctx.shadowColor = dungeon.color;
+            ctx.shadowBlur = S.worldZone === dungeon.id ? 16 + pulse * 8 : 8;
+            ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.ellipse(0, 2, 18, 30, 0, 0, Math.PI * 2); ctx.stroke();
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = 1;
+            if (S.worldZone !== 'overworld' || Math.hypot(p.x - location.x, p.y - location.y) < 270) {
+                ctx.fillStyle = '#d7cfb9';
+                ctx.font = '12px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(dungeon.name, 0, 51);
+            }
+            ctx.restore();
+        }
+
+        for (let creature of S.worldCreatures) {
+            let bob = Math.sin(creature.bob * 5) * 2;
+            ctx.fillStyle = 'rgba(0,0,0,0.25)';
+            ctx.beginPath(); ctx.ellipse(creature.x, creature.y + 11, creature.r * 0.85, creature.r * 0.35, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.globalAlpha = 0.35;
+            ctx.fillStyle = creature.tint;
+            ctx.beginPath(); ctx.arc(creature.x, creature.y + bob, creature.r + 7, 0, Math.PI * 2); ctx.fill();
+            ctx.globalAlpha = 1;
+            drawSprite(creature.img, creature.x, creature.y + bob, Math.min(48, creature.draw * 0.72), false);
+            if (Math.hypot(p.x - creature.x, p.y - creature.y) < 175) {
+                ctx.font = '11px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = 'rgba(14,17,15,0.8)';
+                ctx.fillStyle = '#ead9b6';
+                ctx.strokeText(creature.name, creature.x, creature.y - creature.r - 17);
+                ctx.fillText(creature.name, creature.x, creature.y - creature.r - 17);
+            }
+        }
+
+        for (let actor of S.worldActors) {
+            let npc = actor.npc;
+            ctx.fillStyle = 'rgba(0,0,0,0.28)';
+            ctx.beginPath(); ctx.ellipse(actor.x, actor.y + 24, 23, 8, 0, 0, Math.PI * 2); ctx.fill();
+            drawNpcSprite(npc.id, actor.x, actor.y + Math.sin(S.time * 3 + actor.phase) * 1.2, 72);
+            if (Math.hypot(p.x - actor.x, p.y - actor.y) < 175) {
+                ctx.font = 'bold 11px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.lineWidth = 3;
+                ctx.strokeStyle = 'rgba(14,17,15,0.88)';
+                ctx.fillStyle = '#efe3c7';
+                ctx.strokeText(npc.name, actor.x, actor.y - 40);
+                ctx.fillText(npc.name, actor.x, actor.y - 40);
+            }
+        }
+
+        if (p) {
+            ctx.fillStyle = 'rgba(0,0,0,0.35)';
+            ctx.beginPath(); ctx.ellipse(p.x, p.y + 19, 27, 10, 0, 0, Math.PI * 2); ctx.fill();
+            drawSprite('player', p.x, p.y, 76, false);
+            ctx.fillStyle = '#8cf4ff';
+            ctx.beginPath();
+            ctx.arc(p.x + Math.cos(p.facing) * 22, p.y + Math.sin(p.facing) * 22 - 13, 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+
+    }
+
     function draw() {
         if (!ctx) return;
+        let worldSceneVisible = S.state === 'world' ||
+            (S.state === 'dialog' && S.npcPausedState === 'world');
+        let worldHint = document.getElementById('worldHint');
+        if (worldHint) worldHint.style.display = worldSceneVisible ? 'block' : 'none';
+        let interactBtn = document.getElementById('interactBtn');
+        if (interactBtn && S.state !== 'world' &&
+            !(S.state === 'playing' && S.floorNpc && !S.floorNpc.used)) {
+            interactBtn.classList.remove('visible');
+        }
         ctx.clearRect(0, 0, W, H);
+        if (worldSceneVisible) {
+            drawWorldMap();
+            return;
+        }
         drawFloorScene();
 
         if (!S.player) return;
         let p = S.player;
         drawFloorTraps();
+
+        if (S.floorNpc) {
+            let npc = S.floorNpc.npc;
+            let bob = Math.sin(S.time * 2.8 + S.floorNpc.phase) * 2;
+            let pulse = 0.5 + (Math.sin(S.time * 3 + S.floorNpc.phase) + 1) * 0.18;
+            ctx.save();
+            ctx.globalAlpha = pulse;
+            ctx.strokeStyle = npc.color || '#f0d58d';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.ellipse(S.floorNpc.x, S.floorNpc.y + 20, 24, 9, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+            ctx.fillStyle = 'rgba(0,0,0,0.32)';
+            ctx.beginPath();
+            ctx.ellipse(S.floorNpc.x, S.floorNpc.y + 25, 21, 7, 0, 0, Math.PI * 2);
+            ctx.fill();
+            drawNpcSprite(npc.id, S.floorNpc.x, S.floorNpc.y + bob, 70);
+            ctx.font = 'bold 12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = 'rgba(14,17,15,0.9)';
+            ctx.fillStyle = '#fff0c2';
+            ctx.strokeText(npc.name, S.floorNpc.x, S.floorNpc.y - 44);
+            ctx.fillText(npc.name, S.floorNpc.x, S.floorNpc.y - 44);
+            if (!S.floorNpc.used && Math.hypot(p.x - S.floorNpc.x, p.y - S.floorNpc.y) < 155) {
+                ctx.font = '10px sans-serif';
+                ctx.fillStyle = '#ffe7aa';
+                ctx.fillText('靠近交谈  E', S.floorNpc.x, S.floorNpc.y - 30);
+            }
+            ctx.textAlign = 'left';
+        }
 
         if (S.portal) {
             let pulse = 1 + Math.sin(S.portal.t * 4) * 0.08;
@@ -2686,10 +3528,10 @@ function startRun() {
                 ctx.stroke();
                 ctx.lineWidth = 1;
             }
-            let bw = m.id === 'boss' ? 80 : 40;
+            let bw = m.boss ? 80 : 40;
             ctx.fillStyle = 'rgba(0,0,0,0.6)';
             ctx.fillRect(m.x - bw / 2, m.y - m.draw / 2 - 10, bw, 6);
-            ctx.fillStyle = m.id === 'boss' ? '#ff4444' : '#cc3355';
+            ctx.fillStyle = m.boss ? '#ff4444' : '#cc3355';
             ctx.fillRect(m.x - bw / 2, m.y - m.draw / 2 - 10, bw * Math.max(0, m.hp / m.maxHp), 6);
         }
 
@@ -2702,7 +3544,7 @@ function startRun() {
             if (auraColor) {
                 let pulse = 1 + Math.sin(S.time * 5) * 0.08;
                 ctx.beginPath();
-                ctx.arc(p.x, p.y, (p.mods.evoAegis ? 29 : 23) * pulse, 0, Math.PI * 2);
+                ctx.arc(p.x, p.y, (p.mods.evoAegis ? 40 : 34) * pulse, 0, Math.PI * 2);
                 ctx.strokeStyle = auraColor;
                 ctx.globalAlpha = 0.45 + Math.sin(S.time * 4) * 0.12;
                 ctx.lineWidth = p.curseFrenzyTime > 0 || p.mods.evoAegis ? 3 : 2;
@@ -2710,13 +3552,13 @@ function startRun() {
                 ctx.globalAlpha = 1;
                 ctx.lineWidth = 1;
             }
-            drawSprite('player', p.x, p.y, 52, false);
-            if (p.stunTime > 0) drawStatusGlyph(p.x, p.y - 39, 'stun', S.time, 0.72, 0.95);
-            if (p.burnTime > 0) drawStatusGlyph(p.x, p.y - (p.stunTime > 0 ? 58 : 39), 'fire', S.time, 0.58, 0.9);
-            if (p.poisonTime > 0) drawStatusGlyph(p.x, p.y - (p.burnTime > 0 ? 75 : 39), 'poison', S.time, 0.58, 0.9);
-            if (p.attackSlowTime > 0) drawStatusGlyph(p.x, p.y - 39, 'seal', S.time, 0.58, 0.9);
-            let ex = p.x + Math.cos(p.facing) * 12;
-            let ey = p.y + Math.sin(p.facing) * 12 - 4;
+            drawSprite('player', p.x, p.y, 68, false);
+            if (p.stunTime > 0) drawStatusGlyph(p.x, p.y - 49, 'stun', S.time, 0.72, 0.95);
+            if (p.burnTime > 0) drawStatusGlyph(p.x, p.y - (p.stunTime > 0 ? 68 : 49), 'fire', S.time, 0.58, 0.9);
+            if (p.poisonTime > 0) drawStatusGlyph(p.x, p.y - (p.burnTime > 0 ? 85 : 49), 'poison', S.time, 0.58, 0.9);
+            if (p.attackSlowTime > 0) drawStatusGlyph(p.x, p.y - 49, 'seal', S.time, 0.58, 0.9);
+            let ex = p.x + Math.cos(p.facing) * 16;
+            let ey = p.y + Math.sin(p.facing) * 16 - 5;
             ctx.beginPath();
             ctx.arc(ex, ey, 3, 0, Math.PI * 2);
             ctx.fillStyle = '#7df9ff';
@@ -3071,62 +3913,9 @@ function startRun() {
         if (img) {
             if (flash) ctx.globalAlpha = 0.5;
             if (key === 'player') {
-                let p = S.player;
-                let moving = Math.abs(p.vx) > 0.01 || Math.abs(p.vy) > 0.01;
-                let bob = moving ? Math.sin(p.walkT * 10) * 2 : 0;
-                ctx.save();
-                ctx.translate(x, y + bob);
-
-                // 根据朝向选择五种基础精灵，东侧朝向使用水平翻转。
-                let ang = p.facing;
-                let spriteKey, flipH = false;
-
-                while (ang <= -Math.PI) ang += 2 * Math.PI;
-                while (ang > Math.PI) ang -= 2 * Math.PI;
-
-                if (ang >= -Math.PI / 8 && ang < Math.PI / 8) {
-                    spriteKey = 'player_west';
-                    flipH = true;
-                } else if (ang >= Math.PI / 8 && ang < 3 * Math.PI / 8) {
-                    spriteKey = 'player_southwest';
-                    flipH = true;
-                } else if (ang >= 3 * Math.PI / 8 && ang < 5 * Math.PI / 8) {
-                    spriteKey = 'player_south';
-                } else if (ang >= 5 * Math.PI / 8 && ang < 7 * Math.PI / 8) {
-                    spriteKey = 'player_southwest';
-                } else if (ang >= 7 * Math.PI / 8 || ang < -7 * Math.PI / 8) {
-                    spriteKey = 'player_west';
-                } else if (ang >= -7 * Math.PI / 8 && ang < -5 * Math.PI / 8) {
-                    spriteKey = 'player_northwest';
-                } else if (ang >= -5 * Math.PI / 8 && ang < -3 * Math.PI / 8) {
-                    spriteKey = 'player_north';
-                } else if (ang >= -3 * Math.PI / 8 && ang < -Math.PI / 8) {
-                    spriteKey = 'player_northwest';
-                    flipH = true;
-                } else {
-                    spriteKey = 'player_south';
-                }
-
-                let useImg = images[spriteKey] || img;
-                let anim = p.anim;
-
-                if (flipH) {
-                    ctx.scale(-1, 1);
-                }
-
-                // 帧动画
-                let frame = 0;
-                if (moving) {
-                    frame = Math.floor((p.walkT / anim.frameTime) % anim.cols);
-                } else {
-                    frame = 0;
-                }
-
-                let sx = frame * anim.fw;
-                let sy = 0;
-
-                ctx.drawImage(useImg, sx, sy, anim.fw, anim.fh, -size / 2, -size / 2 + bob, size, size);
-                ctx.restore();
+                let p = S.state === 'world' || (S.state === 'dialog' && S.npcPausedState === 'world')
+                    ? S.worldPlayer : S.player;
+                drawCharacterSprite('player', p, x, y, size);
             } else {
                 ctx.drawImage(img, x - size / 2, y - size / 2, size, size);
             }
@@ -3140,6 +3929,58 @@ function startRun() {
             ctx.strokeStyle = '#000';
             ctx.stroke();
         }
+    }
+
+    function characterDirection(facing) {
+        let ang = facing;
+        while (ang <= -Math.PI) ang += 2 * Math.PI;
+        while (ang > Math.PI) ang -= 2 * Math.PI;
+        if (ang >= -Math.PI / 8 && ang < Math.PI / 8) return { direction: 'west', flipH: true };
+        if (ang >= Math.PI / 8 && ang < 3 * Math.PI / 8) return { direction: 'southwest', flipH: true };
+        if (ang >= 3 * Math.PI / 8 && ang < 5 * Math.PI / 8) return { direction: 'south', flipH: false };
+        if (ang >= 5 * Math.PI / 8 && ang < 7 * Math.PI / 8) return { direction: 'southwest', flipH: false };
+        if (ang >= 7 * Math.PI / 8 || ang < -7 * Math.PI / 8) return { direction: 'west', flipH: false };
+        if (ang >= -7 * Math.PI / 8 && ang < -5 * Math.PI / 8) return { direction: 'northwest', flipH: false };
+        if (ang >= -5 * Math.PI / 8 && ang < -3 * Math.PI / 8) return { direction: 'north', flipH: false };
+        return { direction: 'northwest', flipH: true };
+    }
+
+    function drawCharacterSprite(prefix, character, x, y, size) {
+        let { direction, flipH } = characterDirection(character.facing || 0);
+        let sprite = images[prefix + '_' + direction] || images.player_south || images.player;
+        if (!sprite) return;
+        let anim = character.anim || { fw: 64, fh: 64, cols: 8, frameTime: 0.1 };
+        let moving = Math.abs(character.vx || 0) > 0.01 || Math.abs(character.vy || 0) > 0.01;
+        let bob = moving ? Math.sin((character.walkT || 0) * 10) * 2 : 0;
+        let frame = moving ? Math.floor(((character.walkT || 0) / anim.frameTime) % anim.cols) : 0;
+        ctx.save();
+        ctx.translate(x, y + bob);
+        if (flipH) ctx.scale(-1, 1);
+        ctx.drawImage(sprite, frame * anim.fw, 0, anim.fw, anim.fh,
+            -size / 2, -size / 2 + bob, size, size);
+        ctx.restore();
+    }
+
+    function drawNpcPortrait(npcId, portraitCanvas) {
+        let sprites = images.npcSprites;
+        let npcIndex = (window.NPCS || []).findIndex(npc => npc.id === npcId);
+        if (!sprites || npcIndex < 0 || !portraitCanvas) return false;
+        let portraitCtx = portraitCanvas.getContext('2d');
+        portraitCtx.clearRect(0, 0, portraitCanvas.width, portraitCanvas.height);
+        portraitCtx.imageSmoothingEnabled = false;
+        portraitCtx.drawImage(sprites, npcIndex * 128, 160, 128, 160,
+            0, 0, portraitCanvas.width, portraitCanvas.height);
+        return true;
+    }
+
+    function drawNpcSprite(npcId, x, y, height) {
+        let sprites = images.npcSprites;
+        let npcIndex = (window.NPCS || []).findIndex(npc => npc.id === npcId);
+        if (!sprites || npcIndex < 0) return false;
+        let width = height * 0.8;
+        ctx.drawImage(sprites, npcIndex * 128, 0, 128, 160,
+            x - width / 2, y - height / 2, width, height);
+        return true;
     }
 
     function floatText(x, y, msg, color) {
@@ -3157,6 +3998,10 @@ function startRun() {
 
     return {
         init: init,
+        startWorld: startWorld,
+        startDungeonWorld: startDungeonWorld,
+        returnToOverworld: returnToOverworld,
+        interactStory: interactStory,
         startRun: startRun,
         stopRun: stopRun,
         nextFloor: nextFloor,
@@ -3166,6 +4011,10 @@ function startRun() {
         finishRun: finishRun,
         isRunning: () => S.running,
         getState: () => S,
+        drawNpcPortrait: drawNpcPortrait,
+        pauseForNpcDialog: pauseForNpcDialog,
+        resumeFromNpcDialog: resumeFromNpcDialog,
+        resolveDungeonNpcEncounter: resolveDungeonNpcEncounter,
         fitCanvas: fitCanvas
     };
 })();

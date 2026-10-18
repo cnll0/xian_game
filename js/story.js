@@ -4,22 +4,204 @@ function getStoryNode(id) {
     return window.STORIES.find(s => s.id === id);
 }
 
+function getStoryDungeonId(storyId) {
+    if (storyId === 's2') return 'qingyun';
+    if (storyId === 's4' || storyId === 's6') return 'ember';
+    if (storyId === 's8') return 'frost';
+    if (storyId === 's10') return 'nether';
+    return 'qingyun';
+}
+
+function learnPermanentTechnique(techniqueId, source) {
+    let technique = window.TECHNIQUES.find(item => item.id === techniqueId);
+    if (!technique) throw new Error('Unknown technique: ' + techniqueId);
+    if (!Array.isArray(G.learnedTechniques)) G.learnedTechniques = [];
+    if (G.learnedTechniques.includes(techniqueId)) return false;
+    G.learnedTechniques.push(techniqueId);
+    for (let key in technique.effects) {
+        let value = technique.effects[key];
+        if (key === 'atk') G.atk += value;
+        else if (key === 'maxHp') { G.maxHp += value; G.hp = Math.min(G.maxHp, G.hp + value); }
+        else if (key === 'speed') G.speed = +(G.speed + value).toFixed(2);
+        else if (key === 'range') G.range += value;
+        else if (key === 'crit') G.crit = Math.min(80, G.crit + value);
+    }
+    toast('📘 参悟功法：' + technique.name + (source ? ' · ' + source : ''), 'gold');
+    updateHUD();
+    saveGame(false);
+    return true;
+}
+
+window.learnDungeonTechnique = function (dungeonId) {
+    let dungeon = window.DUNGEONS.find(item => item.id === dungeonId);
+    if (!dungeon) return;
+    let next = dungeon.techniques.find(id => !(G.learnedTechniques || []).includes(id));
+    if (next) learnPermanentTechnique(next, '秘境传承');
+    else toast('📘 此处功法已尽数学会', 'good');
+};
+
+function getNpcRelation(npc) {
+    if (!G.npcRelations) G.npcRelations = {};
+    if (typeof G.npcRelations[npc.id] !== 'number') {
+        G.npcRelations[npc.id] = npc.attitude === 'friendly' ? 24 : npc.attitude === 'hostile' ? -32 : 0;
+    }
+    return G.npcRelations[npc.id];
+}
+
+function npcRelationLabel(score) {
+    if (score <= -25) return { label: '敌对', className: 'hostile' };
+    if (score <= -8) return { label: '戒备', className: 'hostile' };
+    if (score >= 40) return { label: '友好', className: 'friendly' };
+    if (score >= 18) return { label: '熟络', className: 'friendly' };
+    return { label: '中立', className: '' };
+}
+
+function showNpcDialog(npc, line, hideChoices) {
+    Engine.pauseForNpcDialog();
+    let score = getNpcRelation(npc);
+    let relation = npcRelationLabel(score);
+    let portrait = $('npcPortrait');
+    portrait.setAttribute('aria-label', npc.name + '立绘');
+    if (!Engine.drawNpcPortrait(npc.id, portrait)) {
+        throw new Error('NPC portrait sprite is not ready: ' + npc.id);
+    }
+    $('npcFaction').textContent = npc.faction;
+    $('npcName').textContent = npc.name;
+    $('npcTitle').textContent = npc.title;
+    $('npcDialogue').textContent = line || npc.greeting;
+    let badge = $('npcRelation');
+    badge.textContent = relation.label;
+    badge.className = 'npc-relation' + (relation.className ? ' ' + relation.className : '');
+    let options = $('npcOptions');
+    options.replaceChildren();
+    if (!hideChoices) npc.choices.forEach((choice, index) => {
+        let button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'option-btn';
+        button.textContent = choice.text;
+        button.addEventListener('click', () => chooseNpcOption(npc, choice, index));
+        options.appendChild(button);
+    });
+    showOverlay('npcOverlay');
+}
+
+function chooseNpcOption(npc, choice, index) {
+    if (npc.dungeonEncounter) {
+        let result = Engine.resolveDungeonNpcEncounter(choice);
+        showNpcDialog(npc, choice.reply + '\n\n' + result, true);
+        return;
+    }
+    if (!G.npcChoices) G.npcChoices = {};
+    let chosen = G.npcChoices[npc.id] || [];
+    let firstChoice = chosen.indexOf(index) < 0;
+    if (firstChoice) {
+        chosen.push(index);
+        G.npcChoices[npc.id] = chosen;
+        G.npcRelations[npc.id] = Math.max(-100, Math.min(100,
+            getNpcRelation(npc) + (choice.favor || 0)));
+    }
+    let claims = G.npcRewardClaims || (G.npcRewardClaims = {});
+    let claimId = npc.id + ':' + index;
+    if (firstChoice && choice.technique && learnPermanentTechnique(choice.technique, npc.name + '传授')) {
+        claims[claimId] = true;
+    } else if (firstChoice && choice.reward && !claims[claimId]) {
+        for (let key in choice.reward) {
+            let amount = choice.reward[key];
+            if (key === 'atk') G.atk += amount;
+            else if (key === 'maxHp') { G.maxHp += amount; G.hp = Math.min(G.maxHp, G.hp + amount); }
+            else if (key === 'speed') G.speed = +(G.speed + amount).toFixed(2);
+            else if (key === 'range') G.range += amount;
+            else if (key === 'crit') G.crit = Math.min(80, G.crit + amount);
+        }
+        claims[claimId] = true;
+        updateHUD();
+        toast('✨ ' + npc.name + ' 的指点让你有所精进', 'gold');
+    }
+    if (!firstChoice) {
+        showNpcDialog(npc, '你们已经谈过这件事了。' + choice.reply);
+    } else {
+        showNpcDialog(npc, choice.reply);
+    }
+    saveGame(false);
+}
+
+window.onWorldNpcNearby = function (npc) {
+    if (npc) showNpcDialog(npc);
+};
+
+window.onDungeonNpcNearby = function (npc) {
+    if (npc) showNpcDialog(npc);
+};
+
+function closeNpcDialog() {
+    hideOverlay('npcOverlay');
+    Engine.resumeFromNpcDialog();
+}
+
+function showDungeonSelector() {
+    let list = $('dungeonChoices');
+    list.replaceChildren();
+    for (let dungeon of window.DUNGEONS) {
+        let unlocked = G.realm >= dungeon.realmMin;
+        let requiredRealm = window.REALMS[dungeon.realmMin].name;
+        let card = document.createElement('article');
+        card.className = 'dungeon-choice' + (unlocked ? '' : ' locked');
+        let title = document.createElement('h3');
+        title.textContent = (unlocked ? '🌀 ' : '🔒 ') + dungeon.name;
+        let rank = document.createElement('div');
+        rank.className = 'dungeon-rank';
+        rank.textContent = dungeon.subtitle + ' · ' + dungeon.floorCount + '层';
+        let description = document.createElement('p');
+        description.textContent = unlocked
+            ? '游荡妖兽：' + Array.from(new Set(dungeon.floorPool.flat())).map(id => window.MONSTERS[id].name).join('、')
+            : '需达到' + requiredRealm + '方可进入';
+        let button = document.createElement('button');
+        button.className = unlocked ? 'btn-primary' : 'btn-secondary';
+        button.disabled = !unlocked;
+        button.textContent = unlocked ? '进入野外秘境' : '境界未达';
+        if (unlocked) button.addEventListener('click', () => {
+            hideOverlay('dungeonSelectOverlay');
+            Engine.startDungeonWorld(dungeon.id);
+        });
+        card.append(title, rank, description, button);
+        list.appendChild(card);
+    }
+    showOverlay('dungeonSelectOverlay');
+}
+
+function showTechniques() {
+    closeMenu();
+    let list = $('techniquesList');
+    list.replaceChildren();
+    let learned = window.TECHNIQUES.filter(technique => (G.learnedTechniques || []).includes(technique.id));
+    if (!learned.length) {
+        let empty = document.createElement('div');
+        empty.className = 'techniques-empty';
+        empty.textContent = '尚未参悟功法。探索秘境、与修士交流，寻找传承。';
+        list.appendChild(empty);
+    }
+    for (let technique of learned) {
+        let entry = document.createElement('article');
+        entry.className = 'technique-entry';
+        let icon = document.createElement('div');
+        icon.className = 'technique-icon';
+        icon.textContent = '📜';
+        let content = document.createElement('div');
+        let title = document.createElement('h3');
+        title.textContent = technique.name;
+        let school = document.createElement('small');
+        school.textContent = technique.school;
+        let description = document.createElement('p');
+        description.textContent = technique.desc;
+        content.append(title, school, description);
+        entry.append(icon, content);
+        list.appendChild(entry);
+    }
+    showOverlay('techniquesOverlay');
+}
+
 function getDungeonFloorForChapter(storyId) {
-    // 根据故事章节返回对应的秘境层数
-    // 第一章：1-10层
-    if (storyId === 's2') {
-        return 10;
-    }
-    // 第二章：11-20层
-    if (storyId === 's4' || storyId === 's5') {
-        return 20;
-    }
-    // 第三章：21-30层（或者无尽模式到40层）
-    if (storyId === 's8' || storyId === 's9') {
-        return 30;
-    }
-    // 默认：10层
-    return 10;
+    return 1;
 }
 
 function showStoryDialog(node) {
@@ -47,6 +229,10 @@ function showStoryDialog(node) {
     });
     showOverlay('storyOverlay');
 }
+
+window.onWorldStoryNearby = function (node) {
+    if (node) showStoryDialog(node);
+};
 
 function chooseStoryOption(node, idx) {
     let opt = node.options[idx];
@@ -76,7 +262,7 @@ function chooseStoryOption(node, idx) {
         G.story.node = node.id;
         // 根据当前章节设置秘境层数
         let dungeonFloor = getDungeonFloorForChapter(node.id);
-        Engine.startRun(dungeonFloor);
+        Engine.startRun(dungeonFloor, true, getStoryDungeonId(node.id));
         saveGame(false);
         return;
     }
@@ -85,8 +271,8 @@ function chooseStoryOption(node, idx) {
         saveGame(false);
         let next = getStoryNode(opt.next);
         if (next) {
-            console.log('跳转到剧情节点:', opt.next);
-            showStoryDialog(next);
+            hideOverlay('storyOverlay');
+            toast('🗺️ 新的剧情地点：' + (window.STORY_LOCATIONS[next.id] || {}).name, 'gold');
         } else {
             console.error('找不到下一节点:', opt.next);
             hideOverlay('storyOverlay');
@@ -124,11 +310,30 @@ function eStat(label, val) {
 }
 
 window.onDungeonFloorClear = function (floor) {
+    let run = Engine.getState();
+    if (run.skirmish) {
+        Engine.finishRun(true);
+        Engine.startWorld();
+        toast('🌿 战斗结束，你回到了秘境探索中', 'good');
+        return;
+    }
+    let floorCount = run.floorCount || window.DUNGEON_FLOORS;
+    if (!Engine.getState().storyDungeon) {
+        if (floor >= floorCount) {
+            setTimeout(() => {
+                Engine.finishRun(true);
+                Engine.startWorld();
+            }, 900);
+        } else {
+            Engine.nextFloor();
+        }
+        return;
+    }
     let storyId = G.story.node;
     let nextStoryNode = null;
 
     if (storyId === 's2') {
-        if (floor >= window.DUNGEON_FLOORS) {
+        if (floor >= floorCount) {
             toast('👑 赤鳞蟒被斩杀！秘境通关！', 'gold');
             setTimeout(() => {
                 Engine.finishRun(true);
@@ -137,43 +342,43 @@ window.onDungeonFloorClear = function (floor) {
                     G.story.node = 's3';
                     saveGame(false);
                 }
-                if (node) showStoryDialog(node);
+                if (node) Engine.startWorld();
             }, 900);
         } else {
             // 其他层：通关后自动进入下一层（spawnFloor 会自动弹出双向卡牌）
             Engine.nextFloor();
         }
-    } else if (storyId === 's4' || storyId === 's5') {
+    } else if (storyId === 's4' || storyId === 's5' || storyId === 's6') {
         // 第二章的故事节点
-        if (floor >= window.DUNGEON_FLOORS) {
+        if (floor >= floorCount) {
             // 如果通关了秘境深层，可以进入下一个剧情节点（s7 - 构建基灵液）
             toast('👑 魔化核心被毁！秘境深层通关！', 'gold');
             setTimeout(() => {
                 Engine.finishRun(true);
                 let node = getStoryNode('s7');
-                if (G.story.node === 's4' || G.story.node === 's5') {
+                if (G.story.node === 's4' || G.story.node === 's5' || G.story.node === 's6') {
                     G.story.node = 's7';
                     saveGame(false);
                 }
-                if (node) showStoryDialog(node);
+                if (node) Engine.startWorld();
             }, 900);
         } else {
             // 其他层：通关后自动进入下一层
             Engine.nextFloor();
         }
-    } else if (storyId === 's8' || storyId === 's9') {
+    } else if (storyId === 's8' || storyId === 's9' || storyId === 's10') {
         // 第三章的故事节点
-        if (floor >= window.DUNGEON_FLOORS) {
+        if (floor >= floorCount) {
             // 如果通关了问剑大会秘境，可以进入下一个剧情节点（s11 - 金丹问剑冠军）
             toast('👑 君莫邪被斩！秘境通关！', 'gold');
             setTimeout(() => {
                 Engine.finishRun(true);
                 let node = getStoryNode('s11');
-                if (G.story.node === 's8' || G.story.node === 's9') {
+                if (G.story.node === 's8' || G.story.node === 's9' || G.story.node === 's10') {
                     G.story.node = 's11';
                     saveGame(false);
                 }
-                if (node) showStoryDialog(node);
+                if (node) Engine.startWorld();
             }, 900);
         } else {
             // 其他层：通关后自动进入下一层
@@ -181,7 +386,7 @@ window.onDungeonFloorClear = function (floor) {
         }
     } else {
         // 其他章节默认处理
-        if (floor >= window.DUNGEON_FLOORS) {
+        if (floor >= floorCount) {
             toast('👑 秘境通关！', 'gold');
             setTimeout(() => {
                 Engine.finishRun(true);
@@ -190,7 +395,7 @@ window.onDungeonFloorClear = function (floor) {
                     G.story.node = 's3';
                     saveGame(false);
                 }
-                if (node) showStoryDialog(node);
+                if (node) Engine.startWorld();
             }, 900);
         } else {
             Engine.nextFloor();
@@ -202,9 +407,8 @@ window.onDungeonDeath = function () {
     setTimeout(() => {
         Engine.stopRun();
         hideOverlay('cardsOverlay');
-        toast('💀 可在剧情面板再次挑战秘境', 'bad');
-        let node = getStoryNode(G.story.node);
-        if (node) showStoryDialog(node);
+        toast('💀 已返回大地图，可在当前地点再次挑战', 'bad');
+        Engine.startWorld();
     }, 800);
 };
 

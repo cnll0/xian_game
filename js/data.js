@@ -120,7 +120,11 @@ const MONSTERS = {
     slimelet: { id: 'slimelet', name: '软泥幼体', img: 'bat', hp: 18, atk: 5, speed: 2.5, r: 10, draw: 30, cult: 2, tint: '#9be8bd' },
     frostwitch: { id: 'frostwitch', name: '寒魄妖姬', img: 'skeleton', hp: 62, atk: 12, speed: 1.0, r: 17, draw: 54, cult: 20, ranged: true, keepDistance: true, shootRange: 280, shootCd: 2.8, projectileColor: '#8cecff', slow: 1.4, tint: '#8cecff' },
     elite: { id: 'elite', name: '魔将·血煞', img: 'elite', hp: 220, atk: 22, speed: 1.7, r: 26, draw: 72, cult: 45, elite: true },
-    boss: { id: 'boss', name: '赤鳞蟒', img: 'boss', hp: 650, atk: 20, speed: 1.35, r: 42, draw: 120, cult: 120 }
+    boss: { id: 'boss', name: '赤鳞蟒', img: 'boss', hp: 650, atk: 20, speed: 1.35, r: 42, draw: 120, cult: 120, boss: true },
+    qingyunBoss: { id: 'qingyunBoss', name: '赤鳞蟒', img: 'boss', hp: 310, atk: 12, speed: 1.05, r: 38, draw: 108, cult: 60, boss: true },
+    emberBoss: { id: 'emberBoss', name: '熔岩地龙', img: 'boss', hp: 720, atk: 18, speed: 1.15, r: 40, draw: 116, cult: 100, boss: true, tint: '#ed8549' },
+    frostBoss: { id: 'frostBoss', name: '寒潭蛟王', img: 'boss', hp: 1050, atk: 24, speed: 1.25, r: 42, draw: 120, cult: 150, boss: true, tint: '#81dcf3' },
+    netherBoss: { id: 'netherBoss', name: '幽墟镇墓兽', img: 'boss', hp: 1450, atk: 29, speed: 1.4, r: 44, draw: 126, cult: 210, boss: true, tint: '#b388e8' }
 };
 
 const FLOOR_POOL = [
@@ -137,6 +141,147 @@ const FLOOR_POOL = [
 ];
 
 const DUNGEON_FLOORS = 10;
+const DUNGEONS = [
+    {
+        id: 'qingyun', name: '青云外围', subtitle: '炼气境试炼', realmMin: 0, floorCount: 10,
+        hpScale: 0.52, atkScale: 0.58, color: '#6f9a63', entry: { x: 900, y: 1390 },
+        floorPool: [
+            ['wolf', 'bat'], ['wolf', 'bat'], ['wolf', 'spider'], ['bat', 'spider'],
+            ['wolf', 'spider', 'slimelet'], ['bat', 'spider', 'slimelet'],
+            ['wolf', 'bat', 'spider'], ['spider', 'slimelet'], ['wolf', 'bat', 'spider'], ['qingyunBoss']
+        ],
+        techniques: ['qingyun_sword', 'breath_cycle', 'wind_step'], position: { x: 900, y: 1390 }
+    },
+    {
+        id: 'ember', name: '赤炎洞窟', subtitle: '炼气五重开放', realmMin: 4, floorCount: 5,
+        hpScale: 0.9, atkScale: 0.9, color: '#ce7045', entry: { x: 2730, y: 1210 },
+        floorPool: [['wolf', 'bat'], ['spider', 'brute'], ['charger', 'brute'], ['elite', 'charger'], ['emberBoss']],
+        techniques: ['ember_blade', 'stone_skin'], position: { x: 2730, y: 1210 }
+    },
+    {
+        id: 'frost', name: '寒潭秘境', subtitle: '筑基境开放', realmMin: 9, floorCount: 5,
+        hpScale: 1.12, atkScale: 1.08, color: '#72bdcf', entry: { x: 3020, y: 930 },
+        floorPool: [['bat', 'spider'], ['wraith', 'skeleton'], ['frostwitch', 'wraith'], ['shaman', 'frostwitch'], ['frostBoss']],
+        techniques: ['frost_breath', 'flowing_sword'], position: { x: 3020, y: 930 }
+    },
+    {
+        id: 'nether', name: '幽冥古墟', subtitle: '金丹境开放', realmMin: 12, floorCount: 5,
+        hpScale: 1.45, atkScale: 1.38, color: '#a07bd0', entry: { x: 3260, y: 470 },
+        floorPool: [['wraith', 'spider'], ['shaman', 'slime'], ['elite', 'frostwitch'], ['elite', 'charger'], ['netherBoss']],
+        techniques: ['soul_guard', 'void_step'], position: { x: 3260, y: 470 }
+    }
+];
+
+const TECHNIQUES = [
+    { id: 'qingyun_sword', name: '青云剑诀', school: '剑修', dungeon: 'qingyun', desc: '将基础剑意融入招式，永久攻击+3。', effects: { atk: 3 } },
+    { id: 'breath_cycle', name: '小周天吐纳', school: '心法', dungeon: 'qingyun', desc: '灵气周天运转，永久最大生命+20。', effects: { maxHp: 20 } },
+    { id: 'wind_step', name: '踏风步', school: '身法', dungeon: 'qingyun', desc: '身轻如燕，永久移动速度+0.25。', effects: { speed: 0.25 } },
+    { id: 'ember_blade', name: '赤炎刀意', school: '火系', dungeon: 'ember', desc: '刀锋淬入地火，永久攻击+7、暴击+2%。', effects: { atk: 7, crit: 2 } },
+    { id: 'stone_skin', name: '磐石护体', school: '护体', dungeon: 'ember', desc: '以灵力淬炼筋骨，永久最大生命+45。', effects: { maxHp: 45 } },
+    { id: 'frost_breath', name: '寒潭冰息', school: '冰系', dungeon: 'frost', desc: '寒气凝于剑气，永久攻击+10、暴击+4%。', effects: { atk: 10, crit: 4 } },
+    { id: 'flowing_sword', name: '流水剑经', school: '剑修', dungeon: 'frost', desc: '剑势连绵不绝，永久攻击范围+12、速度+0.2。', effects: { range: 12, speed: 0.2 } },
+    { id: 'soul_guard', name: '镇魂诀', school: '神魂', dungeon: 'nether', desc: '神识稳固如山，永久最大生命+70、暴击+5%。', effects: { maxHp: 70, crit: 5 } },
+    { id: 'void_step', name: '幽冥遁法', school: '身法', dungeon: 'nether', desc: '借幽冥之气穿行，永久攻击+14、速度+0.35。', effects: { atk: 14, speed: 0.35 } }
+];
+
+const NPCS = [
+    { id: 'ningxiao', name: '宁小雨', title: '迷路的外门弟子', portrait: 'ningxiao', x: 520, y: 1650, faction: '青云门', attitude: 'friendly', color: '#72b89d', zone: 'overworld',
+        greeting: '呼……终于见到同门了。我在采药时走散，附近好像有妖兽。',
+        choices: [
+            { text: '送她一枚回春丹', reply: '多谢道友！这本吐纳心得送你，愿能助你修行。', favor: 18, technique: 'breath_cycle', reward: { maxHp: 8 } },
+            { text: '问问附近的路', reply: '沿溪水向北有处古洞，最近常有赤光从里面冒出来。', favor: 5 },
+            { text: '告辞，继续赶路', reply: '路上小心，别一个人深入秘境。', favor: 0 }
+        ] },
+    { id: 'linyue', name: '林越', title: '游历散修', portrait: 'linyue', x: 160, y: 1910, faction: '散修', attitude: 'neutral', color: '#859fbd', zone: 'overworld',
+        greeting: '在下林越，四方游历的散修。修行路上，多一个朋友总好过多一个仇家。',
+        choices: [
+            { text: '以灵石换取剑诀心得（攻击+2）', reply: '这招青云剑式是我观碑所得，就当结个善缘。', favor: 12, reward: { atk: 2 } },
+            { text: '谈谈各处秘境', reply: '赤炎洞克制寒性功法，寒潭深处则常有幽魂出没。', favor: 4 },
+            { text: '质疑他的话', reply: '道不同，不必强求。', favor: -12 }
+        ] },
+    { id: 'shenli', name: '沈砺', title: '青云门执事', portrait: 'shenli', x: 1010, y: 1280, faction: '青云门', attitude: 'neutral', color: '#c0a064', zone: 'overworld',
+        greeting: '外门执事沈砺。秘境按境界分了几处，莫要为了机缘越阶送命。',
+        choices: [
+            { text: '请教试炼规矩', reply: '青云外围适合炼气弟子。赤炎洞、寒潭与古墟，须有相应修为再入。', favor: 8 },
+            { text: '请求指点剑法（攻击+3）', reply: '看好了，出剑不可只凭蛮力。', favor: 15, reward: { atk: 3 } },
+            { text: '抱怨门规繁琐', reply: '不守规矩，便不必再叫我执事。', favor: -20 }
+        ] },
+    { id: 'guqinghan', name: '顾清寒', title: '内门剑修', portrait: 'guqinghan', x: 1730, y: 790, faction: '青云门', attitude: 'friendly', color: '#84c7dc', zone: 'overworld',
+        greeting: '你就是最近那位新入门的弟子？剑意不错，不过还缺些沉淀。',
+        choices: [
+            { text: '请她指点身法（速度+0.15）', reply: '脚下别急着追风，先学会听风。', favor: 16, reward: { speed: 0.15 } },
+            { text: '谈谈问剑大会', reply: '胜负之外，更重要的是看清自己的剑。', favor: 7 },
+            { text: '向她发起挑衅', reply: '若你真想较量，擂台上见。', favor: -24 }
+        ] },
+    { id: 'mochen', name: '墨痕', title: '魔道探子', portrait: 'mochen', x: 2360, y: 770, faction: '不明', attitude: 'hostile', color: '#bd6a72', zone: 'ember',
+        greeting: '青云门的人？呵，这处秘境可不是你们的后院。',
+        choices: [
+            { text: '拔剑逼问来意', reply: '今日先放你一马。下次碰面，可就没这么客气了。', favor: -30 },
+            { text: '提出暂时合作', reply: '合作？各取所需罢了。别挡我的路。', favor: 10 },
+            { text: '保持距离', reply: '算你识相。', favor: 0 }
+        ] },
+    { id: 'jichang', name: '姬无常', title: '幽冥古墟访客', portrait: 'jichang', x: 3170, y: 580, faction: '幽冥宗', attitude: 'hostile', color: '#a88bd0', zone: 'nether',
+        greeting: '生人也敢入古墟？这里埋着的，可不止是尸骨。',
+        choices: [
+            { text: '询问镇魂诀的来历', reply: '你倒识货。若能从古墟活着出来，再谈传承。', favor: 8 },
+            { text: '强行索要传承', reply: '狂妄之徒，休想染指幽冥遗物。', favor: -35 },
+            { text: '礼貌行礼后离开', reply: '至少你还懂些礼数。', favor: 4 }
+        ] },
+    { id: 'hanxing', name: '秦寒星', title: '寒潭守境人', portrait: 'hanxing', x: 3010, y: 1030, faction: '守境一脉', color: '#78b9d0', zone: 'frost',
+        greeting: '潭底寒气会封住经脉。若无冰系根基，切莫贪图深处的灵物。',
+        choices: [
+            { text: '请教寒潭行走之法（暴击+1%）', reply: '记住，寒意最盛时反而是灵力最稳的时候。', favor: 12, reward: { crit: 1 } },
+            { text: '询问古墟传闻', reply: '幽冥宗的人在北面的废墟出没，最好不要招惹。', favor: 5 },
+            { text: '表示不信', reply: '等你在潭中冻僵，自然会信。', favor: -10 }
+        ] }
+];
+
+const DUNGEON_NPC_EVENTS = {
+    qingyun: [
+        { floor: 2, npcId: 'ningxiao', title: '药篓边的相逢', line: '一名外门弟子正蹲在石缝边整理药草。她听见妖兽声，攥紧了药篓。', choices: [
+            { text: '分一份灵药疗伤', reply: '她把药粉敷在你的伤口上，草木清香压下了痛意。', effect: { type: 'heal', amount: 0.22 } },
+            { text: '交换一页吐纳心得', reply: '她将手抄的吐纳口诀塞给你，灵气顿时运转得更顺畅。', effect: { type: 'attack', amount: 4 } }
+        ] },
+        { floor: 5, npcId: 'linyue', title: '石壁下的散修', line: '林越靠着刻满旧剑痕的石壁，正用树枝比划某种剑路。', choices: [
+            { text: '请他指点剑路', reply: '林越点出你招式中的破绽，你对出剑时机有了新的领悟。', effect: { type: 'attack', amount: 6 } },
+            { text: '交换灵石与情报', reply: '他讲了几处安全落脚点，顺手分给你一袋灵石。', effect: { type: 'cult', amount: 42 } }
+        ] },
+        { floor: 8, npcId: 'guqinghan', title: '寒剑留痕', line: '顾清寒守在一道裂开的石门前，剑锋凝着薄霜。她示意你先听洞中的动静。', choices: [
+            { text: '随她静听灵脉', reply: '你借灵脉回响调匀气息，护体灵光凝实了几分。', effect: { type: 'shield', amount: 0.2 } },
+            { text: '请她陪练一招', reply: '数招交错后，你抓住了她留下的一线破绽。', effect: { type: 'attack', amount: 9 } }
+        ] }
+    ],
+    ember: [
+        { floor: 2, npcId: 'linyue', title: '熔岩边的行脚商', line: '林越把湿透的披风搭在石柱上，正等岩浆冷却后捡取火晶。', choices: [
+            { text: '用清水换取回春散', reply: '他递来一包清凉药散，灼痛的伤口终于缓和。', effect: { type: 'heal', amount: 0.2 } },
+            { text: '买下火晶碎片', reply: '火晶在掌心炸开一缕热流，你把这股力量引入剑招。', effect: { type: 'attack', amount: 7 } }
+        ] },
+        { floor: 4, npcId: 'mochen', title: '阵眼前的魔道探子', line: '墨痕被困在崩裂的火阵里。他盯着你，提出各取所需的交易。', choices: [
+            { text: '接受火符，承受灼伤', reply: '火符化入剑锋，灼伤也逼得你将气血压榨到极限。', effect: { type: 'bloodPrice', hp: 0.12, attack: 12 } },
+            { text: '拆阵救人，索取报酬', reply: '阵法散去，墨痕丢下一枚灵石，转身消失在烟尘中。', effect: { type: 'cult', amount: 75 } }
+        ] }
+    ],
+    frost: [
+        { floor: 2, npcId: 'guqinghan', title: '冰桥上的同门', line: '顾清寒在冰桥另一侧清理裂冰。她提醒你，脚下的寒雾会吞掉灵力。', choices: [
+            { text: '请她稳住冰桥', reply: '剑气钉住冰层，你趁机积起一层寒光护盾。', effect: { type: 'shield', amount: 0.22 } },
+            { text: '借寒雾淬炼剑锋', reply: '寒气刺骨，却也让剑意变得更加锐利。', effect: { type: 'attack', amount: 8 } }
+        ] },
+        { floor: 4, npcId: 'hanxing', title: '寒潭守境人的灯火', line: '秦寒星守着一盏快要熄灭的冰灯，灯下躺着几株尚未冻坏的灵草。', choices: [
+            { text: '以灵力护住冰灯', reply: '灯火回暖，守境人将灵草捣碎敷在你身上。', effect: { type: 'heal', amount: 0.25 } },
+            { text: '借冰灯参悟寒息', reply: '冰灯映出经脉中的灵气流向，你的护体灵力更稳了。', effect: { type: 'shield', amount: 0.3 } }
+        ] }
+    ],
+    nether: [
+        { floor: 2, npcId: 'mochen', title: '残碑下的黑市', line: '墨痕在残碑后摆了几枚来路不明的符箓，周围的影子却比烛火慢了一拍。', choices: [
+            { text: '买一枚影遁符', reply: '符箓燃尽，你从阴影里借来一丝迅捷身法。', effect: { type: 'speed', amount: 0.45 } },
+            { text: '以灵力换取邪门秘闻', reply: '秘闻令你修为有所增长，但也惊动了古墟深处的东西。', effect: { type: 'riskCult', amount: 95 } }
+        ] },
+        { floor: 4, npcId: 'jichang', title: '古墟里的引魂人', line: '姬无常站在一地碎裂的魂灯之间，问你敢不敢借一缕幽冥之火。', choices: [
+            { text: '借火淬炼神魂', reply: '幽火附上剑锋，魂灯里的怨气也随之翻涌。', effect: { type: 'bloodPrice', hp: 0.16, attack: 16 } },
+            { text: '熄灭魂灯，安抚亡魂', reply: '怨气散去，古墟深处逸出一缕纯净灵气。', effect: { type: 'healCult', amount: 0.18, cult: 90 } }
+        ] }
+    ]
+};
 
 const FLOOR_NAMES = [
     '秘境入口', '碎石甬道', '幽暗回廊', '白骨浅滩', '灵矿岔路',
@@ -706,6 +851,23 @@ const STORY = [
         ]
     }
 ];
+const STORY_LOCATIONS = {
+    s0: { x: 360, y: 1840, name: '青云山下·村庄', icon: '🏘️', kind: 'village' },
+    s1: { x: 610, y: 1610, name: '村口老槐树', icon: '🌳', kind: 'tree' },
+    s2: { x: 900, y: 1390, name: '青云山秘境入口', icon: '🌀', kind: 'portal' },
+    s3: { x: 1200, y: 1190, name: '青云仙门', icon: '⛩️', kind: 'gate' },
+    c1_end: { x: 1510, y: 1010, name: '外门弟子居所', icon: '🏯', kind: 'sect' },
+    s4: { x: 1840, y: 820, name: '外门演武场', icon: '⚔️', kind: 'arena' },
+    s5: { x: 2150, y: 1040, name: '问剑台', icon: '🗡️', kind: 'arena' },
+    s6: { x: 2480, y: 820, name: '秘境深层·吞灵阵', icon: '🔮', kind: 'portal' },
+    s7: { x: 2820, y: 590, name: '秘境核心', icon: '💠', kind: 'portal' },
+    c2_end: { x: 2580, y: 410, name: '内门灵峰', icon: '🏯', kind: 'sect' },
+    s8: { x: 2200, y: 300, name: '青云主峰·议事殿', icon: '🏯', kind: 'sect' },
+    s9: { x: 1830, y: 470, name: '问剑大会·初赛擂台', icon: '⚔️', kind: 'arena' },
+    s10: { x: 1450, y: 650, name: '问剑大会·决赛台', icon: '🔥', kind: 'arena' },
+    s11: { x: 1040, y: 430, name: '金丹加冕台', icon: '👑', kind: 'sect' }
+};
+
 const ACHIEVEMENTS = [
     { id: 'first_kill', emoji: '🗡️', name: '初次斩妖', desc: '击杀第一只妖兽', check: s => s.flags.kills >= 1 },
     { id: 'kill50', emoji: '⚔️', name: '斩妖五十', desc: '累计击杀50只妖兽', check: s => s.flags.kills >= 50 },
@@ -719,6 +881,11 @@ const ACHIEVEMENTS = [
 ];
 
 window.STORIES = STORY;
+window.STORY_LOCATIONS = STORY_LOCATIONS;
+window.DUNGEONS = DUNGEONS;
+window.TECHNIQUES = TECHNIQUES;
+window.NPCS = NPCS;
+window.DUNGEON_NPC_EVENTS = DUNGEON_NPC_EVENTS;
 window.PLAYER_CARDS = PLAYER_CARDS;
 window.MONSTER_CARDS = MONSTER_CARDS;
 window.MONSTER_RUN_CARDS = MONSTER_RUN_CARDS;

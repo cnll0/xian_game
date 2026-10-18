@@ -64,18 +64,22 @@ function init() {
     $('menuBtn').addEventListener('click', () => showOverlay('menuOverlay'));
 
     $('btnDungeon').addEventListener('click', () => {
-        if (Engine.isRunning()) { toast('🏰 秘境探索中', 'bad'); return; }
-        hideOverlay('storyOverlay');
-        Engine.startRun();
+        if (Engine.isRunning() && Engine.getState().state !== 'world') { toast('🏰 秘境探索中', 'bad'); return; }
+        if (Engine.getState().worldZone && Engine.getState().worldZone !== 'overworld') Engine.returnToOverworld();
+        else showDungeonSelector();
     });
     $('btnStory').addEventListener('click', () => {
+        if (Engine.getState().state === 'world') {
+            if (!Engine.interactStory()) toast('四处走走，靠近人物、遗迹或擂台时会遇到故事', 'good');
+            return;
+        }
         if (Engine.isRunning()) { toast('⚔️ 战斗中无法推进剧情', 'bad'); return; }
         let node = getStoryNode(G.story.node);
         if (!node) { showEnding(); return; }
         showStoryDialog(node);
     });
     $('btnHeal').addEventListener('click', () => {
-        if (Engine.isRunning()) { toast('⚔️ 战斗中无法疗伤', 'bad'); return; }
+        if (Engine.isRunning() && Engine.getState().state !== 'world') { toast('⚔️ 战斗中无法疗伤', 'bad'); return; }
         if (G.hp >= G.maxHp) { toast('❤️ 生命已满', 'bad'); return; }
         let heal = Math.min(30, G.maxHp - G.hp);
         G.hp += heal;
@@ -116,6 +120,11 @@ function newGame(originId) {
     G.hp = G.maxHp;
     G.flags = { kills: 0, runs: 0, clears: 0, maxFloor: 0, cursedPicks: 0, storyClear: 0, deaths: 0, noDeathClear: 0 };
     G.story = { node: 's0', done: [] };
+    G.world = null;
+    G.learnedTechniques = [];
+    G.npcRelations = {};
+    G.npcChoices = {};
+    G.npcRewardClaims = {};
     G.achievements = [];
     if (o.startItem) {
         toast(o.emoji + ' 获得开局道具', 'gold');
@@ -125,28 +134,34 @@ function newGame(originId) {
     updateHUD();
     toast('🌟 出身选定：' + o.emoji + o.name, 'gold');
     saveGame(false);
-    let node = getStoryNode('s0');
-    if (node) showStoryDialog(node);
+    Engine.startWorld(true);
 }
 
 function updateHUD() {
     let nameEl = $('hudName');
     if (nameEl) nameEl.textContent = (G.username || '无名') + ' · ' + window.REALMS[G.realm].name;
+    let inDungeon = Engine.isRunning() && Engine.getState().state !== 'world';
     let hpBar = $('hudHpFill');
     let hpText = $('hudHpText');
-    let curHp = Engine.isRunning() && Engine.getState().player ? Engine.getState().player.hp : G.hp;
-    let maxHp = Engine.isRunning() && Engine.getState().player ? Engine.getState().player.maxHp : G.maxHp;
+    let curHp = inDungeon && Engine.getState().player ? Engine.getState().player.hp : G.hp;
+    let maxHp = inDungeon && Engine.getState().player ? Engine.getState().player.maxHp : G.maxHp;
     if (hpBar) hpBar.style.width = Math.max(0, Math.min(100, curHp / maxHp * 100)) + '%';
     if (hpText) hpText.textContent = Math.max(0, Math.round(curHp)) + '/' + maxHp;
     let cultEl = $('hudCult');
     if (cultEl) cultEl.textContent = '🌀' + G.cultivation;
     let statEl = $('hudStats');
-    let runMods = Engine.isRunning() && Engine.getState().player ? Engine.getState().player.mods : null;
+    let runMods = inDungeon && Engine.getState().player ? Engine.getState().player.mods : null;
     if (statEl) statEl.textContent = '⚔️' + (G.atk + (runMods ? runMods.atk : 0)) +
         ' 💨' + +(G.speed + (runMods ? runMods.speed : 0)).toFixed(1) +
         ' 🎯' + Math.min(80, G.crit + (runMods ? runMods.crit : 0)) + '%';
     let floorEl = $('hudFloor');
-    if (floorEl) floorEl.textContent = Engine.isRunning() ? ('🏰' + Engine.getState().floor + '/' + window.DUNGEON_FLOORS) : '🏰秘境';
+    if (floorEl) {
+        let state = Engine.getState();
+        let dungeon = window.DUNGEONS.find(item => item.id === state.dungeonId);
+        floorEl.textContent = state.state === 'world'
+            ? (state.worldZone === 'overworld' ? '🗺️ 青云山脉' : '🌫️ ' + (dungeon ? dungeon.name : '秘境'))
+            : Engine.isRunning() ? ('🏰' + state.floor + '/' + (state.floorCount || window.DUNGEON_FLOORS)) : '🏰秘境';
+    }
     renderAchievementBadge();
 }
 

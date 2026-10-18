@@ -52,6 +52,11 @@ function getSaveData() {
         hp: G.hp,
         flags: G.flags,
         story: G.story,
+        world: G.world || null,
+        learnedTechniques: G.learnedTechniques || [],
+        npcRelations: G.npcRelations || {},
+        npcChoices: G.npcChoices || {},
+        npcRewardClaims: G.npcRewardClaims || {},
         achievements: G.achievements,
         saveTs: Date.now()
     });
@@ -77,16 +82,19 @@ function applySaveData(raw) {
     G.hp = Math.min(d.hp != null ? d.hp : G.maxHp, G.maxHp);
     G.flags = Object.assign({ kills: 0, runs: 0, clears: 0, maxFloor: 0, cursedPicks: 0, storyClear: 0, deaths: 0, noDeathClear: 0 }, d.flags || {});
     G.story = d.story || { node: 's0', done: [] };
+    G.world = d.world || null;
+    G.learnedTechniques = Array.isArray(d.learnedTechniques) ? d.learnedTechniques : [];
+    G.npcRelations = d.npcRelations && typeof d.npcRelations === 'object' ? d.npcRelations : {};
+    G.npcChoices = d.npcChoices && typeof d.npcChoices === 'object' ? d.npcChoices : {};
+    G.npcRewardClaims = d.npcRewardClaims && typeof d.npcRewardClaims === 'object' ? d.npcRewardClaims : {};
     G.achievements = d.achievements || [];
     hideOverlay('loginOverlay');
     hideOverlay('createOverlay');
     showGameShell();
     updateHUD();
     renderAchievementBadge();
+    Engine.startWorld();
     toast('📂 存档已加载（v' + (d.ver || 1) + '）', 'gold');
-    let node = getStoryNode(G.story.node);
-    if (node) showStoryDialog(node);
-    else hideOverlay('storyOverlay');
     return true;
 }
 
