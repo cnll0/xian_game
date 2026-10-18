@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "allowJs": true,
+    "checkJs": false,
+    "declaration": true,
+    "declarationMap": true,
+    "outDir": "./dist",
+    "rootDir": "./js",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@engine/*": ["js/engine/*"],
+      "@systems/*": ["js/engine/systems/*"],
+      "@world/*": ["js/engine/world/*"],
+      "@render/*": ["js/engine/render/*"],
+      "@core/*": ["js/engine/core/*"],
+      "@utils/*": ["js/engine/utils/*"]
+    }
+  },
+  "include": ["js/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

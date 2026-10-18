@@ -1,7 +1,60 @@
 'use strict';
 
+/**
+ * @typedef {Object} RuntimeState
+ * @property {boolean} running
+ * @property {'idle'|'world'|'playing'|'clear'|'dialog'} state
+ * @property {boolean} storyDungeon
+ * @property {boolean} skirmish
+ * @property {number} floor
+ * @property {number} floorCount
+ * @property {string} dungeonId
+ * @property {import('../../types.d.ts').Dungeon|null} dungeon
+ * @property {number} time
+ * @property {number} mapSeed
+ * @property {any|null} portal
+ * @property {boolean} noDeathRun
+ * @property {import('../../types.d.ts').PlayerEntity|null} player
+ * @property {import('../../types.d.ts').MonsterEntity[]} monsters
+ * @property {import('../../types.d.ts').Bullet[]} bullets
+ * @property {import('../../types.d.ts').Effect[]} effects
+ * @property {import('../../types.d.ts').FloatText[]} texts
+ * @property {import('../../types.d.ts').Chest[]} chests
+ * @property {import('../../types.d.ts').Trap[]} traps
+ * @property {import('../../types.d.ts').SceneryItem[]} scenery
+ * @property {import('../../types.d.ts').Landmark[]} landmarks
+ * @property {import('../../types.d.ts').Vec2[]} arena
+ * @property {import('../../types.d.ts').FloorNPC|null} floorNpc
+ * @property {number|null} pendingFloorClear
+ * @property {string|null} npcPausedState
+ * @property {{player:{},monster:{},run:{}}} cards
+ * @property {import('../../types.d.ts').MonsterMods} monsterMods
+ * @property {Object} world
+ * @property {Object} input
+ * @property {Object} assets
+ */
+
+/**
+ * @typedef {Object} Constants
+ * @property {number} W
+ * @property {number} H
+ * @property {number} WORLD_ZOOM
+ * @property {number} PAD
+ */
+
+/**
+ * @typedef {Object} Assets
+ * @property {Record<string, HTMLImageElement|null>} images
+ * @property {CanvasPattern|null} floorPattern
+ */
+
+/**
+ * ?????????
+ * ?????????????????get/set??
+ */
 class GameState {
     constructor() {
+        /** @type {RuntimeState} */
         this.runtime = {
             running: false,
             state: 'idle',
@@ -62,6 +115,7 @@ class GameState {
             }
         };
 
+        /** @type {Constants} */
         this.constants = {
             W: 960,
             H: 540,
@@ -69,16 +123,27 @@ class GameState {
             PAD: 24
         };
 
+        /** @type {Assets} */
         this.assets = {
             images: {},
             floorPattern: null
         };
     }
 
+    /**
+     * ????????
+     * @param {string} key - ????????? 'world.player.x'
+     * @returns {any}
+     */
     get(key) {
         return key.split('.').reduce((obj, k) => obj?.[k], this.runtime);
     }
 
+    /**
+     * ????????
+     * @param {string} key - ???????
+     * @param {any} value - ?????
+     */
     set(key, value) {
         const keys = key.split('.');
         const lastKey = keys.pop();
@@ -86,6 +151,7 @@ class GameState {
         target[lastKey] = value;
     }
 
+    /** ????????? */
     resetRuntime() {
         this.runtime.running = false;
         this.runtime.state = 'idle';
@@ -116,6 +182,7 @@ class GameState {
         this.runtime.input.keys = {};
     }
 
+    /** ???????? */
     resetWorld() {
         this.runtime.world.player = null;
         this.runtime.world.camera = { x: 0, y: 0 };
