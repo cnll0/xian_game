@@ -1,12 +1,26 @@
 'use strict';
 
+/**
+ * 战斗系统 - 核心游戏逻辑
+ * 支持同步/异步地图生成
+ */
 class CombatSystem {
-    constructor(gameState, mapGenerator, eventBus, pools) {
+    /**
+     * @param {Object} gameState - GameState实例
+     * @param {Object} mapGenerator - MapGenerator实例(同步版)
+     * @param {Object} eventBus - EventBus实例
+     * @param {Object} pools - 对象池
+     * @param {Object} mapGeneratorWorker - MapGeneratorWorker实例(异步版，可选)
+     */
+    constructor(gameState, mapGenerator, eventBus, pools, mapGeneratorWorker = null) {
         this.state = gameState.runtime;
         this.constants = gameState.constants;
         this.mapGenerator = mapGenerator;
+        this.mapGeneratorWorker = mapGeneratorWorker;
+        this.useWorker = !!mapGeneratorWorker;
         this.eventBus = eventBus;
         this.pools = pools;
+        this._spawnFloorPromise = null;
     }
 
     startRun(startFloor, storyDungeon, dungeonId, skirmish) {
@@ -84,19 +98,151 @@ class CombatSystem {
 
         this.state.running = true;
         this.state.state = 'playing';
-        this.spawnFloor(this.state.floor);
+        // 异步生成首层
+        this._spawnFloorAsync(this.state.floor);
         window.lastTs = 0;
         if (!window.raf) window.raf = requestAnimationFrame(window.loop);
         window.updateHUD();
     }
 
-    spawnFloor(floor) {
+    /**
+     * 异步生成楼层 (Worker版本)
+     * @param {number} floor
+     * @returns {Promise<void>}
+     */
+    async _spawnFloorAsync(floor) {
+        this.state.state = 'loading'; // 显示加载状态
+        window.updateHUD();
+
+        const { W, H, PAD } = this.constants;
+
+        try {
+            if (this.useWorker && window.mapGeneratorWorker) {
+                // 确保Worker已初始化
+                await window.mapGeneratorWorker.init();
+                const { scenery, landmarks, traps, arena } =
+                    await window.mapGeneratorWorker.generateFullFloor(floor, this.state.mapSeed, this.state.time);
+
+                this.state.scenery = scenery;
+                this.state.landmarks = landmarks;
+                this.state.traps = traps;
+                this.state.arena = arena;
+            } else {
+                // 回退到同步版本
+                this._spawnFloorSync(floor);
+            }
+        } catch (err) {
+            console.error('Worker生成失败，回退同步:', err);
+            this._spawnFloorSync(floor);
+        }
+
+        this._finishSpawnFloor();
+    }
+
+    /**
+     * 同步生成楼层 (主线程版本)
+     * @param {number} floor
+     */
+    _spawnFloorSync(floor) {
         const { W, H, PAD } = this.constants;
 
         this.state.scenery = this.mapGenerator.generateFloorScenery(floor, this.state.mapSeed, W, H, PAD);
         this.state.landmarks = this.mapGenerator.generateFloorLandmarks(floor, this.state.mapSeed, W, H, PAD);
         this.state.traps = this.mapGenerator.generateFloorTraps(floor, this.state.mapSeed, this.state.time, W, H, PAD);
         this.state.arena = this.mapGenerator.generateArenaLayout(floor, this.state.mapSeed, W, H);
+    }
+
+    /**
+     * 生成楼层完成后的通用逻辑
+     */
+    _finishSpawnFloor() {
+        const dungeon = this.state.dungeon || window.DUNGEONS[0];
+        const pool = dungeon.floorPool[Math.min(floor, dungeon.floorPool.length) - 1] || ['wolf'];
+        const isBossFloor = pool.some(id => window.MONSTERS[id] && window.MONSTERS[id].boss);
+
+        this.state.floorNpc = null;
+        if (!this.state.skirmish && !isBossFloor) {
+            const event = (window.DUNGEON_NPC_EVENTS[dungeon.id] || []).find(item => item.floor === floor);
+            const npc = event && window.NPCS.find(item => item.id === event.npcId);
+            if (event && npc) {
+                const { W, H } = this.constants;
+                this.state.floorNpc = {
+                    x: W / 2 + (Math.random() < 0.5 ? -1 : 1) * 170,
+                    y: H * 0.39,
+                    phase: Math.random() * Math.PI * 2,
+                    used: false,
+                    npc: Object.assign({}, npc, {
+                        dungeonEncounter: true,
+                        title: event.title,
+                        greeting: event.line,
+                        choices: event.choices
+                    })
+                };
+            }
+        }
+
+        const baseCount = isBossFloor ? 1 :
+            3 + Math.floor(this.state.floor * 0.7) + Math.min(4, this.state.monsterMods.cntAdd);
+
+        for (let i = 0; i < baseCount; i++) {
+            let tid = pool[Math.floor(Math.random() * pool.length)];
+            if (this.state.monsterMods.forceElite && i === 0 && this.state.floor < this.state.floorCount) tid = 'elite';
+
+            const base = window.MONSTERS[tid];
+            const hpMul = dungeon.hpScale * (1 + (this.state.floor - 1) * 0.28) * this.state.monsterMods.hpMul;
+            const atkMul = dungeon.atkScale * (1 + (this.state.floor - 1) * 0.15) * this.state.monsterMods.atkMul;
+            const spdMul = this.state.monsterMods.spdMul;
+
+            const m = {
+                id: base.id, name: base.name, img: base.img, boss: !!base.boss,
+                hp: Math.round(base.hp * hpMul),
+                maxHp: Math.round(base.hp * hpMul),
+                atk: Math.round(base.atk * atkMul),
+                speed: Math.round(base.speed * spdMul * 100) / 100,
+                r: base.r,
+                facing: 0,
+                atkCd: 0,
+                stunCd: 0,
+                controlEffect: null,
+                type: base.id,
+                img: base.img,
+                draw: base.draw,
+                tint: base.tint || '#a9aa83',
+                x: 0, y: 0
+            };
+
+            const pos = this._randomArenaPosition(PAD + 60, H - PAD - 60, m.r);
+            m.x = pos.x; m.y = pos.y;
+            this.state.monsters.push(m);
+        }
+
+        const chestCount = this.state.floor < this.state.floorCount ? (Math.random() < 0.7 ? 1 : 2) : 0;
+        for (let i = 0; i < chestCount; i++) {
+            this.state.chests.push(Object.assign(this._randomArenaPosition(PAD + 35, H - PAD - 35, 20), { opened: false }));
+        }
+
+        if (window.G.flags.maxFloor < this.state.floor) {
+            window.G.flags.maxFloor = this.state.floor;
+            window.checkAchievements();
+        }
+
+        window.toast('🏰 ' + dungeon.name + ' · 第' + this.state.floor + '/' + this.state.floorCount + '层 · ' + (window.FLOOR_NAMES[this.state.floor - 1] || '深处'), 'gold');
+        window.updateHUD();
+
+        if (this.state.floor > 1) window.showDualCardChoice();
+
+        this.state.state = 'playing';
+    }
+
+    // 保留旧方法名兼容
+    spawnFloor(floor) {
+        if (this.useWorker && window.mapGeneratorWorker) {
+            this._spawnFloorAsync(floor);
+        } else {
+            this._spawnFloorSync(floor);
+            this._finishSpawnFloor();
+        }
+    }
 
         const dungeon = this.state.dungeon || window.DUNGEONS[0];
         const pool = dungeon.floorPool[Math.min(floor, dungeon.floorPool.length) - 1] || ['wolf'];
@@ -182,13 +328,33 @@ class CombatSystem {
         };
     }
 
-    nextFloor() {
+    async nextFloor() {
         if (this.state.floor >= this.state.floorCount) {
             this.finishRun(true);
             return;
         }
-        this.state.state = 'playing';
-        this.spawnFloor(this.state.floor + 1);
+        this.state.floor++;
+        this.state.state = 'loading';
+        window.updateHUD();
+
+        try {
+            if (this.useWorker && window.mapGeneratorWorker) {
+                const { scenery, landmarks, traps, arena } =
+                    await window.mapGeneratorWorker.generateFullFloor(this.state.floor, this.state.mapSeed, this.state.time);
+
+                this.state.scenery = scenery;
+                this.state.landmarks = landmarks;
+                this.state.traps = traps;
+                this.state.arena = arena;
+            } else {
+                this._spawnFloorSync(this.state.floor);
+            }
+        } catch (err) {
+            console.error('Worker生成下一层失败，回退同步:', err);
+            this._spawnFloorSync(this.state.floor);
+        }
+
+        this._finishSpawnFloor();
         window.saveGame(false);
     }
 

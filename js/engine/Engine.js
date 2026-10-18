@@ -132,8 +132,19 @@ class Engine {
         await this._loadAssets();
 
         this.inputManager = new window.InputManager(this.canvas);
+        
+        // ???MapGeneratorWorker (??????)
+        this.mapGeneratorWorker = new window.MapGeneratorWorker();
+        try {
+            await this.mapGeneratorWorker.init();
+            console.log('[Engine] MapGeneratorWorker ?????');
+        } catch (err) {
+            console.warn('[Engine] MapGeneratorWorker ????????????:', err);
+            this.mapGeneratorWorker = null;
+        }
+
         this.worldSystem = new window.WorldSystem(this.gameState, this.mapGenerator, this.eventBus);
-        this.combatSystem = new window.CombatSystem(this.gameState, this.mapGenerator, this.eventBus, this.pools);
+        this.combatSystem = new window.CombatSystem(this.gameState, this.mapGenerator, this.eventBus, this.pools, this.mapGeneratorWorker);
         this.cardSystem = new window.CardSystem(this.gameState, this.eventBus);
         this.npcManager = new window.NPCManager(this.eventBus);
         this.renderer = new window.Renderer(this.canvas);
