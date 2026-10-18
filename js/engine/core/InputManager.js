@@ -1,17 +1,39 @@
 'use strict';
 
+/**
+ * ????? - ???????????????????
+ * @typedef {Object} MovementVector
+ * @property {number} x - ???? [-1,1]
+ * @property {number} y - ???? [-1,1]
+ * @property {number} length - ????
+ */
+
+/**
+ * @typedef {Object} InputManagerConfig
+ * @property {HTMLCanvasElement} canvas - ????
+ */
+
 class InputManager {
+    /**
+     * @param {HTMLCanvasElement} canvas
+     */
     constructor(canvas) {
+        /** @type {HTMLCanvasElement} */
         this.canvas = canvas;
+        /** @type {Record<string, boolean>} */
         this.keys = {};
+        /** @type {{x:number,y:number,down:boolean}} */
         this.mouse = { x: 480, y: 270, down: false };
+        /** @type {{active:boolean,id:number|null,ox:number,oy:number,dx:number,dy:number}} */
         this.joystick = {
             active: false,
             id: null,
             ox: 0, oy: 0,
             dx: 0, dy: 0
         };
+        /** @type {boolean} */
         this.attackPressed = false;
+        /** @type {boolean} */
         this.interactPressed = false;
 
         this._bindEvents();
@@ -138,6 +160,10 @@ class InputManager {
         }
     }
 
+    /**
+     * ?????????
+     * @returns {MovementVector}
+     */
     getMovementVector() {
         let mx = 0, my = 0;
         if (this.keys['KeyW'] || this.keys['ArrowUp']) my -= 1;
@@ -150,18 +176,31 @@ class InputManager {
         return { x: mx, y: my, length: len };
     }
 
+    /**
+     * ????????
+     * @returns {boolean}
+     */
     consumeAttack() {
         const pressed = this.attackPressed;
         this.attackPressed = false;
         return pressed;
     }
 
+    /**
+     * ????????
+     * @returns {boolean}
+     */
     consumeInteract() {
         const pressed = this.interactPressed;
         this.interactPressed = false;
         return pressed;
     }
 
+    /**
+     * ????????
+     * @param {string} code - ????
+     * @returns {boolean}
+     */
     isKeyPressed(code) {
         return !!this.keys[code];
     }
