@@ -79,31 +79,36 @@ function initCompatibilityLayer() {
     };
 
     window.hurtPlayer = function(damage) {
-        if (window.Engine && window.Engine.combatSystem) {
-            window.Engine.combatSystem.hurtPlayer(damage);
+        const instance = window.Engine?.getInstance?.();
+        if (instance?.combatSystem) {
+            instance.combatSystem.hurtPlayer(damage);
         }
     };
 
     window.killMonster = function(monster, index) {
-        if (window.Engine && window.Engine.combatSystem) {
-            window.Engine.combatSystem.killMonster(monster, index);
+        const instance = window.Engine?.getInstance?.();
+        if (instance?.combatSystem) {
+            instance.combatSystem.killMonster(monster, index);
         }
     };
 
     window.damageMonster = function(monster, bullet) {
-        if (window.Engine && window.Engine.combatSystem) {
-            window.Engine.combatSystem.damageMonster(monster, bullet);
+        const instance = window.Engine?.getInstance?.();
+        if (instance?.combatSystem) {
+            instance.combatSystem.damageMonster(monster, bullet);
         }
     };
 
     window.showDualCardChoice = function() {
-        if (window.Engine && window.Engine.cardSystem) {
-            window.Engine.cardSystem.showDualCardChoice();
+        const instance = window.Engine?.getInstance?.();
+        if (instance?.cardSystem) {
+            instance.cardSystem.showDualCardChoice();
         }
     };
 
     window.learnDungeonTechnique = function(dungeonId) {
-        if (window.Engine && window.Engine.worldSystem) {
+        const instance = window.Engine?.getInstance?.();
+        if (instance?.worldSystem) {
             const dungeon = window.DUNGEONS.find(d => d.id === dungeonId);
             if (dungeon) {
                 const next = dungeon.techniques.find(id => !(window.G.learnedTechniques || []).includes(id));
@@ -114,16 +119,18 @@ function initCompatibilityLayer() {
     };
 
     window.onDungeonFloorClear = function(floor) {
-        if (window.Engine && window.Engine.combatSystem) {
-            window.Engine.combatSystem.combatSystem?.onFloorClear?.(floor);
+        const instance = window.Engine?.getInstance?.();
+        if (instance?.combatSystem) {
+            instance.combatSystem.onFloorClear?.(floor);
         }
     };
 
     window.onDungeonDeath = function() {
-        if (window.Engine) window.Engine.stopRun();
+        const instance = window.Engine?.getInstance?.();
+        if (instance) instance.stopRun();
         window.hideOverlay('cardsOverlay');
         window.toast('💀 已返回大地图，可在当前地点再次挑战', 'bad');
-        if (window.Engine) window.Engine.startWorld();
+        if (instance) instance.startWorld();
     };
 
     window.onDungeonClear = function() {
@@ -132,8 +139,9 @@ function initCompatibilityLayer() {
     };
 
     window.onWorldNpcNearby = function(npc) {
-        if (window.Engine && window.Engine.npcManager) {
-            window.Engine.npcManager.showDialog(npc);
+        const instance = window.Engine?.getInstance?.();
+        if (instance?.npcManager) {
+            instance.npcManager.showDialog(npc);
         }
     };
 
@@ -142,8 +150,9 @@ function initCompatibilityLayer() {
     };
 
     window.onDungeonNpcNearby = function(npc) {
-        if (window.Engine && window.Engine.npcManager) {
-            window.Engine.npcManager.showDialog(npc);
+        const instance = window.Engine?.getInstance?.();
+        if (instance?.npcManager) {
+            instance.npcManager.showDialog(npc);
         }
     };
 }
