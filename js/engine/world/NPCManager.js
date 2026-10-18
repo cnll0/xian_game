@@ -50,7 +50,9 @@ class NPCManager {
     chooseOption(npc, choice, index) {
         if (npc.dungeonEncounter) {
             const result = window.Engine.resolveDungeonNpcEncounter(choice);
-            this.showDialog(npc, choice.reply + '\n\n' + result, true);
+            // 秘境NPC遭遇：显示结果后直接恢复游戏，不再弹二次对话框
+            window.toast(npc.name + ' · ' + result, 'gold');
+            window.Engine.resumeFromNpcDialog();
             return;
         }
 
