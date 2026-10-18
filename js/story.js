@@ -1,0 +1,281 @@
+'use strict';
+
+function getStoryNode(id) {
+    return window.STORIES.find(s => s.id === id);
+}
+
+function getDungeonFloorForChapter(storyId) {
+    // 根据故事章节返回对应的秘境层数
+    // 第一章：1-10层
+    if (storyId === 's2') {
+        return 10;
+    }
+    // 第二章：11-20层
+    if (storyId === 's4' || storyId === 's5') {
+        return 20;
+    }
+    // 第三章：21-30层（或者无尽模式到40层）
+    if (storyId === 's8' || storyId === 's9') {
+        return 30;
+    }
+    // 默认：10层
+    return 10;
+}
+
+function showStoryDialog(node) {
+    if (!node) {
+        hideOverlay('storyOverlay');
+        return;
+    }
+    $('storyTag').textContent = node.tag;
+    $('storyTitle').textContent = node.title;
+    $('storyDesc').textContent = node.desc;
+    let html = '';
+    for (let i = 0; i < node.options.length; i++) {
+        let opt = node.options[i];
+        html += '<button class="option-btn" data-opt="' + i + '"><span>' + opt.text + '</span></button>';
+    }
+    let optContainer = $('storyOptions');
+    optContainer.innerHTML = html;
+    // 先移除旧监听（克隆替换）
+    let newContainer = optContainer.cloneNode(true);
+    optContainer.parentNode.replaceChild(newContainer, optContainer);
+    newContainer.querySelectorAll('.option-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            chooseStoryOption(node, parseInt(btn.dataset.opt, 10));
+        });
+    });
+    showOverlay('storyOverlay');
+}
+
+function chooseStoryOption(node, idx) {
+    let opt = node.options[idx];
+    if (!opt) { console.error('无效选项索引:', idx); return; }
+    if (G.story.done.indexOf(node.id) < 0) G.story.done.push(node.id);
+    if (opt.effects) {
+        for (let k in opt.effects) {
+            let v = opt.effects[k];
+            if (k === 'cult') G.cultivation += v;
+            else if (k === 'maxHp') { G.maxHp += v; }
+        }
+        while (G.realm < window.REALMS.length - 1 && G.cultivation >= window.REALMS[G.realm + 1].cult) G.realm++;
+        updateHUD();
+    }
+    if (opt.toast) toast(opt.toast, 'gold');
+    checkAchievements();
+
+    if (opt.ending) {
+        hideOverlay('storyOverlay');
+        showEnding();
+        return;
+    }
+    if (opt.enterDungeon) {
+        // 直接跳转到秘境探索，不通过storyOverlay
+        // 直接开始游戏状态管理
+        hideOverlay('storyOverlay');
+        G.story.node = node.id;
+        // 根据当前章节设置秘境层数
+        let dungeonFloor = getDungeonFloorForChapter(node.id);
+        Engine.startRun(dungeonFloor);
+        saveGame(false);
+        return;
+    }
+    if (opt.next) {
+        G.story.node = opt.next;
+        saveGame(false);
+        let next = getStoryNode(opt.next);
+        if (next) {
+            console.log('跳转到剧情节点:', opt.next);
+            showStoryDialog(next);
+        } else {
+            console.error('找不到下一节点:', opt.next);
+            hideOverlay('storyOverlay');
+        }
+        return;
+    }
+    // 兜底：如果没有 next/ending/enterDungeon，关闭对话框
+    hideOverlay('storyOverlay');
+}
+
+function showEnding() {
+    G.flags.storyClear = (G.flags.storyClear || 0) + 1;
+    checkAchievements();
+    saveGame(true);
+    $('endEmoji').textContent = '🏆';
+    $('endTitle').textContent = '第一章 · 灵气觉醒 —— 通关';
+    let o = window.ORIGINS.find(x => x.id === G.origin);
+    $('endDesc').textContent = '道号「' + (G.username || '无名') + '」，' + (o ? o.name : '散修') + '出身，如今已是青云仙门弟子。';
+    let html = '';
+    html += eStat('境界', window.REALMS[G.realm].name);
+    html += eStat('修为', G.cultivation);
+    html += eStat('攻击', G.atk);
+    html += eStat('最大生命', G.maxHp);
+    html += eStat('速度', G.speed);
+    html += eStat('暴击', G.crit + '%');
+    html += eStat('总击杀', G.flags.kills || 0);
+    html += eStat('秘境通关', (G.flags.clears || 0) + '次');
+    html += eStat('成就', G.achievements.length + '/' + window.ACHIEVEMENTS.length);
+    $('endStats').innerHTML = html;
+    showOverlay('endingOverlay');
+}
+
+function eStat(label, val) {
+    return '<div class="e-stat"><span>' + label + '</span><b>' + val + '</b></div>';
+}
+
+window.onDungeonFloorClear = function (floor) {
+    let storyId = G.story.node;
+    let nextStoryNode = null;
+
+    if (storyId === 's2') {
+        if (floor >= window.DUNGEON_FLOORS) {
+            toast('👑 赤鳞蟒被斩杀！秘境通关！', 'gold');
+            setTimeout(() => {
+                Engine.finishRun(true);
+                let node = getStoryNode('s3');
+                if (G.story.node === 's2') {
+                    G.story.node = 's3';
+                    saveGame(false);
+                }
+                if (node) showStoryDialog(node);
+            }, 900);
+        } else {
+            // 其他层：通关后自动进入下一层（spawnFloor 会自动弹出双向卡牌）
+            Engine.nextFloor();
+        }
+    } else if (storyId === 's4' || storyId === 's5') {
+        // 第二章的故事节点
+        if (floor >= window.DUNGEON_FLOORS) {
+            // 如果通关了秘境深层，可以进入下一个剧情节点（s7 - 构建基灵液）
+            toast('👑 魔化核心被毁！秘境深层通关！', 'gold');
+            setTimeout(() => {
+                Engine.finishRun(true);
+                let node = getStoryNode('s7');
+                if (G.story.node === 's4' || G.story.node === 's5') {
+                    G.story.node = 's7';
+                    saveGame(false);
+                }
+                if (node) showStoryDialog(node);
+            }, 900);
+        } else {
+            // 其他层：通关后自动进入下一层
+            Engine.nextFloor();
+        }
+    } else if (storyId === 's8' || storyId === 's9') {
+        // 第三章的故事节点
+        if (floor >= window.DUNGEON_FLOORS) {
+            // 如果通关了问剑大会秘境，可以进入下一个剧情节点（s11 - 金丹问剑冠军）
+            toast('👑 君莫邪被斩！秘境通关！', 'gold');
+            setTimeout(() => {
+                Engine.finishRun(true);
+                let node = getStoryNode('s11');
+                if (G.story.node === 's8' || G.story.node === 's9') {
+                    G.story.node = 's11';
+                    saveGame(false);
+                }
+                if (node) showStoryDialog(node);
+            }, 900);
+        } else {
+            // 其他层：通关后自动进入下一层
+            Engine.nextFloor();
+        }
+    } else {
+        // 其他章节默认处理
+        if (floor >= window.DUNGEON_FLOORS) {
+            toast('👑 秘境通关！', 'gold');
+            setTimeout(() => {
+                Engine.finishRun(true);
+                let node = getStoryNode('s3');
+                if (G.story.node === storyId) {
+                    G.story.node = 's3';
+                    saveGame(false);
+                }
+                if (node) showStoryDialog(node);
+            }, 900);
+        } else {
+            Engine.nextFloor();
+        }
+    }
+};
+
+window.onDungeonDeath = function () {
+    setTimeout(() => {
+        Engine.stopRun();
+        hideOverlay('cardsOverlay');
+        toast('💀 可在剧情面板再次挑战秘境', 'bad');
+        let node = getStoryNode(G.story.node);
+        if (node) showStoryDialog(node);
+    }, 800);
+};
+
+window.onDungeonClear = function () {
+    G.hp = G.maxHp;
+    saveGame(false);
+};
+
+function showCardChoices() {
+    let floor = Engine.getState().floor;
+    let cards = drawRunCards(floor);
+    let html = '';
+    for (let c of cards) {
+        let effLines = '';
+        for (let k in c.effects) {
+            let v = c.effects[k];
+            let label = { atk: '攻击', maxHp: '生命上限', speed: '速度', range: '范围', lifesteal: '吸血', crit: '暴击', hp: '当前生命', cult: '修为' }[k] || k;
+            effLines += '<div class="effect-line"><span class="stat">' + label + '</span>' +
+                '<span class="val ' + (v > 0 ? 'positive' : 'negative') + '">' + (v > 0 ? '+' : '') + v + '</span></div>';
+        }
+        for (let k in c.monsterEffects || {}) {
+            let v = c.monsterEffects[k];
+            let label = { hpMul: '妖魔生命', atkMul: '妖魔攻击', spdMul: '妖魔速度', cntAdd: '妖魔数量',
+                forceElite: '精英妖魔', shield: '妖魔护盾', regen: '妖魔回复', thorns: '妖魔反伤',
+                split: '妖魔分裂', explode: '妖魔自爆', teleport: '妖魔瞬移', summonCd: '召唤间隔' }[k] || k;
+            let value = k === 'hpMul' || k === 'atkMul' || k === 'spdMul' ?
+                '+' + Math.round((v - 1) * 100) + '%' : typeof v === 'boolean' ? (v ? '开启' : '关闭') : '+' + v;
+            effLines += '<div class="effect-line enemy-effect"><span class="stat">' + label + '</span><span class="val negative">' + value + '</span></div>';
+        }
+        let rankLabel = c.rank === 0 ? '初获' : c.rank === 1 ? '进阶 2/3' : '进化 3/3';
+        let branches = c.rank >= 2 ? window.getCardEvolutions(c) : [];
+        html += '<div class="choice-card ' + c.type + ' ' + c.rarity + (c.curseTier ? ' curse-' + c.curseTier : '') + '" onclick="pickRunCard(\'' + c.id + '\')">' +
+            cardArt(c.id) +
+            '<span class="rarity">' + window.getCardDrawTierLabel(c) + '</span>' +
+            '<div class="card-name">' + c.name + '<span class="card-rank">' + rankLabel + '</span></div>' +
+            '<div class="card-desc">' + c.desc + '</div>' +
+            '<div class="card-effects">' + effLines + '</div>' +
+            (branches.length ? '<div class="evolution-choices"><span class="evolution-title">选择进化路线</span>' +
+                branches.map(b => '<button type="button" class="evolution-choice" onclick="event.stopPropagation();pickRunCard(\'' + c.id + '\',\'' + b.id + '\')"><strong>' + b.name + '</strong><span>' + b.desc + '</span></button>').join('') + '</div>' : '') +
+            '</div>';
+    }
+    $('cardsTitle').textContent = '✨ 第' + floor + '层已清空 · 择一机缘';
+    $('cardChoices').innerHTML = html;
+    showOverlay('cardsOverlay');
+}
+
+let _runCards = [];
+
+function drawRunCards(floor) {
+    let available = CARDS.concat(window.MONSTER_RUN_CARDS).filter(c => Engine.getRunCardRank(c.id) < 3);
+    let picked = window.drawCardsByTier(available, 3, floor, c => Engine.getRunCardRank(c.id))
+        .map(c => Object.assign({}, c, { rank: Engine.getRunCardRank(c.id) }));
+    _runCards = picked;
+    return picked;
+}
+
+function pickRunCard(cardId, branchId) {
+    let c = _runCards.find(x => x.id === cardId);
+    if (!c) return;
+    if (Engine.getRunCardRank(cardId) >= 2 && !branchId) {
+        toast('请选择一条进化路线', 'gold');
+        return;
+    }
+    let lines = Engine.applyRunCard(c, branchId) || [];
+    let branch = branchId && window.getCardEvolutions(c).find(b => b.id === branchId);
+    let rankText = c.rank > 0 && !branchId ? ' · ' + (c.rank === 1 ? '进阶 2/3' : '进化 3/3') : '';
+    let curseGrade = c.type === 'cursed' ? ' · 诅咒·' + window.CARD_CURSE_TIER_LABELS[c.curseTier] : '';
+    toast((c.emoji || '👿') + ' ' + c.name + (branch ? ' → ' + branch.name : rankText + curseGrade) + '：' + lines.join('，'),
+        c.type === 'cursed' || c.type === 'monster' ? 'bad' : c.type === 'mixed' || branch ? 'gold' : 'good');
+    checkAchievements();
+    saveGame(false);
+    hideOverlay('cardsOverlay');
+    Engine.nextFloor();
+}
