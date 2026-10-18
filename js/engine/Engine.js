@@ -498,15 +498,77 @@ class Engine {
         };
         window.gameInput = input;
 
+        const state = this.gameState.runtime.state;
+
         if (this.gameState.runtime.running) {
-            if (this.gameState.runtime.state === 'world') {
+            if (state === 'world') {
                 this.worldSystem.update(dt, input);
-            } else {
+            } else if (state === 'playing' || state === 'clear') {
                 this.combatSystem.update(dt);
             }
+            // loading???????????????
         }
 
-        this.renderer.render(this.gameState, input);
+        // ??
+        if (state === 'loading') {
+            this._drawLoadingScreen();
+        } else {
+            this.renderer.render(this.gameState, input);
+        }
+    }
+
+    /**
+     * ??????
+     * @private
+     */
+    _drawLoadingScreen() {
+        const ctx = this.ctx;
+        const { W, H } = this.gameState.constants;
+
+        // ??
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, W, H);
+
+        // ?????????
+        const time = this.gameState.runtime.time || 0;
+        const pulse = 0.5 + Math.sin(time * 3) * 0.5;
+
+        ctx.save();
+        ctx.translate(W / 2, H / 2);
+
+        // ??
+        ctx.strokeStyle = `rgba(78, 205, 196, ${0.3 + pulse * 0.4})`;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(0, 0, 60 + pulse * 20, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // ??????
+        ctx.strokeStyle = `rgba(255, 215, 100, ${0.4 + pulse * 0.3})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, 40 - pulse * 10, time * 2, time * 2 + Math.PI * 1.5);
+        ctx.stroke();
+
+        // ????
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 28px "Microsoft YaHei", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('????2D', 0, -60);
+
+        // ????
+        ctx.font = '16px "Microsoft YaHei", sans-serif';
+        ctx.fillStyle = '#aaa';
+        const dots = '.'.repeat(Math.floor(time * 2) % 4);
+        ctx.fillText('??????' + dots, 0, 0);
+
+        // ????
+        ctx.font = '12px "Microsoft YaHei", sans-serif';
+        ctx.fillStyle = '#666';
+        ctx.fillText('???????????????', 0, 60);
+
+        ctx.restore();
     }
 
     start() {
