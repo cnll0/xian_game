@@ -10,15 +10,25 @@ class CardSystem {
         this._pendingPlayerCards = this._drawCards(window.PLAYER_CARDS || [], 3, 'player');
         this._pendingMonsterCards = this._drawCards(
             (window.MONSTER_CARDS || []).filter(c => c.type !== 'cursed'), 3, 'monster');
-        this._pendingCurseCards = (window.MONSTER_CARDS || [])
-            .filter(c => c.type === 'cursed')
-            .map(c => Object.assign({}, c, {
-                rank: this.state.cards.monster[c.id] || 0,
-                selected: false,
-                selectedBranch: null
-            }));
+        this._pendingCurseCards = this._rollCurseCard();
         this.state.state = 'choosing';
         this._renderDualUI();
+    }
+
+    /**
+     * 诅咒不是独立类型：每次抽卡至多出现 1 张，25% 概率插在玩家/妖魔两列之间。
+     * @returns {Object[]}
+     */
+    _rollCurseCard() {
+        const available = (window.MONSTER_CARDS || [])
+            .filter(c => c.type === 'cursed' && (this.state.cards.monster[c.id] || 0) < 3);
+        if (!available.length || Math.random() >= 0.25) return [];
+        const card = available[Math.floor(Math.random() * available.length)];
+        return [Object.assign({}, card, {
+            rank: this.state.cards.monster[card.id] || 0,
+            selected: false,
+            selectedBranch: null
+        })];
     }
 
     _drawCards(source, count, side) {
@@ -35,12 +45,15 @@ class CardSystem {
     _renderDualUI() {
         const columns = [
             { side: 'player', id: 'playerCardChoices', title: '✨ 玩家强化', cards: this._pendingPlayerCards },
-            { side: 'curse', id: 'curseCardChoices', title: '💀 诅咒机缘', cards: this._pendingCurseCards },
+            ...(this._pendingCurseCards.length
+                ? [{ side: 'curse', id: 'curseCardChoices', title: '💀 诅咒机缘', cards: this._pendingCurseCards }]
+                : []),
             { side: 'monster', id: 'monsterCardChoices', title: '👿 妖魔强化', cards: this._pendingMonsterCards }
         ];
 
-        let html = '<h2>🎴 第' + this.state.floor + '层 · 玩家与妖魔选择数量需相同，诅咒可选</h2>';
-        html += '<div class="dual-cards">';
+        let html = '<h2>🎴 第' + this.state.floor + '层 · 玩家与妖魔选择数量需相同' +
+            (this._pendingCurseCards.length ? '，中间可额外选 1 张诅咒' : '') + '</h2>';
+        html += '<div class="dual-cards' + (this._pendingCurseCards.length ? ' has-curse' : '') + '">';
         for (const column of columns) {
             html += '<div class="card-column"><h3>' + column.title + '</h3>';
             html += '<div class="card-choices" id="' + column.id + '">';

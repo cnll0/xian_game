@@ -145,7 +145,7 @@ function main() {
             if (!(parseFloat(lines['attack.drop']) > 0)) failures.push('attack.drop');
             const floorClear = JSON.parse(lines['floorClear'] || '{}');
             if (floorClear.floor !== 2) failures.push('floorClear.floor');
-            if (lines['cardChoices'] !== '3/3/3') failures.push('cardChoices');
+            if (!/^3\/[01]\/3$/.test(lines['cardChoices'] || '')) failures.push('cardChoices');
             if (lines['confirmEnabled'] !== 'true') failures.push('confirmEnabled');
             const cardPick = JSON.parse(lines['cardPick'] || '{}');
             if (cardPick.overlay !== null || cardPick.state !== 'playing') failures.push('cardPick');

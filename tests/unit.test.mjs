@@ -29,8 +29,9 @@ await import('../js/engine/core/EventBus.js');
 await import('../js/engine/core/GameState.js');
 await import('../js/engine/core/InputManager.js');
 await import('../js/engine/utils/AssetLoader.js');
+await import('../js/engine/systems/CardSystem.js');
 
-const { MathUtils, SeededRandom, ObjectPool, PoolTypes, EventBus, GameState, InputManager, AssetLoader } = globalThis;
+const { MathUtils, SeededRandom, ObjectPool, PoolTypes, EventBus, GameState, InputManager, AssetLoader, CardSystem } = globalThis;
 
 test('MathUtils: clamp / distance / angleDiff', () => {
     assert.equal(MathUtils.clamp(12, 0, 10), 10);
@@ -113,6 +114,24 @@ test('InputManager: 键盘/摇杆移动向量', () => {
     input.joystick.dx = 1;
     input.joystick.dy = 0;
     assert.equal(input.getMovementVector().x, 1);
+});
+
+test('CardSystem: 诅咒至多 1 张，25% 概率插入', () => {
+    window.MONSTER_CARDS = [
+        { id: 'c1', name: '诅咒一', type: 'cursed', curseTier: 'minor', effects: {}, curseCost: {}, curseGift: { curseSoulHarvest: 0.01 } },
+        { id: 'c2', name: '诅咒二', type: 'cursed', curseTier: 'major', effects: {}, curseCost: {}, curseGift: { curseFrenzy: 0.1 } },
+        { id: 'c3', name: '诅咒三', type: 'cursed', curseTier: 'calamity', effects: {}, curseCost: {}, curseGift: { curseLastStand: true } }
+    ];
+    const state = { runtime: { cards: { player: {}, monster: {} }, floor: 1 } };
+    const system = new CardSystem(state, { emit() {} });
+    const originalRandom = Math.random;
+    Math.random = () => 0.24;
+    assert.equal(system._rollCurseCard().length, 1);
+    Math.random = () => 0.25;
+    assert.equal(system._rollCurseCard().length, 0);
+    Math.random = () => 0.9;
+    assert.equal(system._rollCurseCard().length, 0);
+    Math.random = originalRandom;
 });
 
 test('AssetLoader: 加载 / 缓存 / 失败返回 null', async () => {
