@@ -14,6 +14,43 @@
                     <span id="hudName">无名 · 炼气一重</span>
                     <div class="hp-bar"><div id="hudHpFill" class="hp-fill"></div><span id="hudHpText">100/100</span></div>
                 </div>
+
+                <div id="npcOverlay" class="overlay">
+                    <div class="npc-dialog">
+                        <div class="npc-portrait-frame">
+                            <canvas id="npcPortrait" width="200" height="250" role="img" aria-label="NPC立绘"></canvas>
+                        </div>
+                        <div class="npc-dialog-content">
+                            <div class="npc-dialog-heading">
+                                <div><span id="npcFaction"></span><h2 id="npcName"></h2><small id="npcTitle"></small></div>
+                                <span id="npcRelation" class="npc-relation"></span>
+                            </div>
+                            <p id="npcDialogue" class="story-desc"></p>
+                            <div id="npcOptions" class="story-options"></div>
+                            <button class="btn-secondary npc-leave" onclick="closeNpcDialog()">先告辞</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="dungeonSelectOverlay" class="overlay">
+                    <div class="dungeon-select-box overlay-content">
+                        <div class="codex-header">
+                            <div><h2>探索秘境</h2><p class="dungeon-intro">境界越高，可探索的秘境越深。秘境深处会遇见不同人物：有人提供援助，也有人提出危险交易。靠近后按 E 交谈。</p></div>
+                            <button class="btn-icon" onclick="hideOverlay('dungeonSelectOverlay')">✕</button>
+                        </div>
+                        <div id="dungeonChoices" class="dungeon-choices"></div>
+                    </div>
+                </div>
+
+                <div id="techniquesOverlay" class="overlay">
+                    <div class="techniques-box overlay-content">
+                        <div class="codex-header">
+                            <div><h2>📘 已学功法</h2><p class="dungeon-intro">已参悟的功法会永久记入道途，并在每次出战时生效。</p></div>
+                            <button class="btn-icon" onclick="hideOverlay('techniquesOverlay')">✕</button>
+                        </div>
+                        <div id="techniquesList" class="techniques-list"></div>
+                    </div>
+                </div>
                 <div class="hud-mid">
                     <span id="hudCult">🌀0</span>
                     <span id="hudStats">⚔️10 💨3.2 🎯5%</span>
@@ -31,13 +68,14 @@
                 <div id="joyZone" class="joy-zone">
                     <div id="joyBase" class="joy-base"><div id="joyKnob" class="joy-knob"></div></div>
                 </div>
+                <div id="worldHint" class="world-hint">WASD / 方向键 / 摇杆移动 · 靠近人物、遗迹或擂台会触发故事</div>
+                <button id="interactBtn" class="interact-btn">📜 触发剧情 <small>E</small></button>
                 <button id="atkBtn" class="atk-btn">⚔️</button>
-                <button id="interactBtn" class="interact-btn hidden">💬 交互 <small>E</small></button>
             </div>
 
             <footer class="action-bar">
                 <button id="btnDungeon" class="action-btn primary">🏰 探索秘境</button>
-                <button id="btnStory" class="action-btn">📜 剧情</button>
+                <button id="btnStory" class="action-btn">👣 探索</button>
                 <button id="btnHeal" class="action-btn">🌿 疗伤</button>
             </footer>
         </div>
@@ -135,8 +173,7 @@
             <button class="menu-item" onclick="showSaveLoad()">💾 存档管理</button>
             <button class="menu-item" onclick="showAchievements()">🏆 成就</button>
             <button class="menu-item" onclick="showCodex()">📖 图鉴</button>
-            <button class="menu-item" onclick="showTechniques()">📜 功法</button>
-            <button class="menu-item" onclick="showDungeonSelector()">🏰 秘境选择</button>
+            <button class="menu-item" onclick="showTechniques()">📘 功法</button>
             <button class="menu-item danger" onclick="confirmReset()">🔄 重新开始</button>
             <button class="menu-item" onclick="closeMenu()">关闭</button>
         </div>
@@ -149,44 +186,6 @@
             <p class="save-meta">存档只保存在当前浏览器。清除浏览器数据或更换设备会导致进度无法读取。</p>
             <div class="save-content" id="saveLocalContent"></div>
             <button class="btn-secondary" onclick="closeSaveLoad()">关闭</button>
-        </div>
-    </div>
-
-    <!-- NPC对话 -->
-    <div id="npcOverlay" class="overlay">
-        <div class="npc-box overlay-content">
-            <div class="npc-header">
-                <canvas id="npcPortrait" width="96" height="96"></canvas>
-                <div class="npc-info">
-                    <span id="npcFaction" class="npc-faction"></span>
-                    <h3 id="npcName"></h3>
-                    <small id="npcTitle"></small>
-                    <div class="npc-relation-wrap">关系：<span id="npcRelation" class="npc-relation"></span></div>
-                </div>
-                <button class="btn-icon" onclick="closeNpcDialog()">✕</button>
-            </div>
-            <p id="npcDialogue"></p>
-            <div class="npc-options" id="npcOptions"></div>
-        </div>
-    </div>
-
-    <!-- 秘境选择 -->
-    <div id="dungeonSelectOverlay" class="overlay">
-        <div class="dungeon-select-box overlay-content">
-            <h2>🏰 选择秘境</h2>
-            <div id="dungeonChoices"></div>
-            <button class="btn-secondary" onclick="hideOverlay('dungeonSelectOverlay')">返回</button>
-        </div>
-    </div>
-
-    <!-- 功法 -->
-    <div id="techniquesOverlay" class="overlay">
-        <div class="techniques-box overlay-content">
-            <div class="techniques-header">
-                <h2>📜 已悟功法</h2>
-                <button class="btn-icon" onclick="hideOverlay('techniquesOverlay')">✕</button>
-            </div>
-            <div id="techniquesList"></div>
         </div>
     </div>
 
@@ -203,26 +202,9 @@
 
     <div id="toastContainer"></div>
 
-    <!-- 模块加载顺序 -->
-    <script src="js/engine/utils/MathUtils.js"></script>
-    <script src="js/engine/utils/AssetLoader.js"></script>
-    <script src="js/engine/utils/ObjectPool.js"></script>
-    <script src="js/engine/core/EventBus.js"></script>
-    <script src="js/engine/core/GameState.js"></script>
-    <script src="js/engine/core/InputManager.js"></script>
-    <script src="js/engine/world/MapGenerator.js"></script>
-    <script src="js/engine/world/MapGeneratorWorker.js"></script>
-    <script src="js/engine/world/WorldSystem.js"></script>
-    <script src="js/engine/world/NPCManager.js"></script>
-    <script src="js/engine/systems/CombatSystem.js"></script>
-    <script src="js/engine/systems/CardSystem.js"></script>
-    <script src="js/engine/render/Renderer.js"></script>
-    <script src="js/engine/Engine.js"></script>
-    <script src="js/engine/compat.js"></script>
-
-    <!-- 游戏数据与逻辑 -->
     <script src="js/data.js"></script>
     <script src="js/save.js"></script>
+    <script src="js/engine.js"></script>
     <script src="js/story.js"></script>
     <script src="js/main.js"></script>
 </body>
