@@ -100,8 +100,6 @@ class CombatSystem {
         this.state.state = 'playing';
         // 异步生成首层
         this._spawnFloorAsync(this.state.floor);
-        window.lastTs = 0;
-        if (!window.raf) window.raf = requestAnimationFrame(window.loop);
         window.updateHUD();
     }
 
@@ -117,11 +115,11 @@ class CombatSystem {
         const { W, H, PAD } = this.constants;
 
         try {
-            if (this.useWorker && window.mapGeneratorWorker) {
+            if (this.useWorker && this.mapGeneratorWorker) {
                 // 确保Worker已初始化
-                await window.mapGeneratorWorker.init();
+                await this.mapGeneratorWorker.init();
                 const { scenery, landmarks, traps, arena } =
-                    await window.mapGeneratorWorker.generateFullFloor(floor, this.state.mapSeed, this.state.time);
+                    await this.mapGeneratorWorker.generateFullFloor(floor, this.state.mapSeed, this.state.time);
 
                 this.state.scenery = scenery;
                 this.state.landmarks = landmarks;
@@ -156,6 +154,8 @@ class CombatSystem {
      * 生成楼层完成后的通用逻辑
      */
     _finishSpawnFloor() {
+        const floor = this.state.floor;
+        const { W, H, PAD } = this.constants;
         const dungeon = this.state.dungeon || window.DUNGEONS[0];
         const pool = dungeon.floorPool[Math.min(floor, dungeon.floorPool.length) - 1] || ['wolf'];
         const isBossFloor = pool.some(id => window.MONSTERS[id] && window.MONSTERS[id].boss);
@@ -208,6 +208,20 @@ class CombatSystem {
                 img: base.img,
                 draw: base.draw,
                 tint: base.tint || '#a9aa83',
+                ranged: !!base.ranged,
+                keepDistance: !!base.keepDistance,
+                shootRange: base.shootRange || 0,
+                shootInterval: (base.shootCd || 2.4) * (0.8 + Math.random() * 0.4),
+                shootCd: (base.shootCd || 2.4) * (0.8 + Math.random() * 0.4),
+                healer: !!base.healer,
+                splitOnDeath: !!base.splitOnDeath,
+                projectileColor: base.projectileColor || '#ffb86b',
+                shield: this.state.monsterMods.shield || 0,
+                regen: this.state.monsterMods.regen || 0,
+                thorns: this.state.monsterMods.thorns || 0,
+                explode: !!this.state.monsterMods.explode,
+                teleport: this.state.monsterMods.teleport || 0,
+                bossCd: base.boss ? 2 : 0,
                 x: 0, y: 0
             };
 
@@ -236,7 +250,7 @@ class CombatSystem {
 
     // 保留旧方法名兼容
     spawnFloor(floor) {
-        if (this.useWorker && window.mapGeneratorWorker) {
+        if (this.useWorker && this.mapGeneratorWorker) {
             this._spawnFloorAsync(floor);
         } else {
             this._spawnFloorSync(floor);
@@ -244,80 +258,10 @@ class CombatSystem {
         }
     }
 
-        const dungeon = this.state.dungeon || window.DUNGEONS[0];
-        const pool = dungeon.floorPool[Math.min(floor, dungeon.floorPool.length) - 1] || ['wolf'];
-        const isBossFloor = pool.some(id => window.MONSTERS[id] && window.MONSTERS[id].boss);
-
-        if (!this.state.skirmish && !isBossFloor) {
-            const event = (window.DUNGEON_NPC_EVENTS[dungeon.id] || []).find(item => item.floor === floor);
-            const npc = event && window.NPCS.find(item => item.id === event.npcId);
-            if (event && npc) {
-                this.state.floorNpc = {
-                    x: W / 2 + (Math.random() < 0.5 ? -1 : 1) * 170,
-                    y: H * 0.39,
-                    phase: Math.random() * Math.PI * 2,
-                    used: false,
-                    npc: Object.assign({}, npc, {
-                        dungeonEncounter: true,
-                        title: event.title,
-                        greeting: event.line,
-                        choices: event.choices
-                    })
-                };
-            }
-        } else {
-            this.state.floorNpc = null;
-        }
-
-        const baseCount = isBossFloor ? 1 :
-            3 + Math.floor(floor * 0.7) + Math.min(4, this.state.monsterMods.cntAdd);
-
-        for (let i = 0; i < baseCount; i++) {
-            let tid = pool[Math.floor(Math.random() * pool.length)];
-            if (this.state.monsterMods.forceElite && i === 0 && floor < this.state.floorCount) tid = 'elite';
-
-            const base = window.MONSTERS[tid];
-            const hpMul = dungeon.hpScale * (1 + (floor - 1) * 0.28) * this.state.monsterMods.hpMul;
-            const atkMul = dungeon.atkScale * (1 + (floor - 1) * 0.15) * this.state.monsterMods.atkMul;
-            const spdMul = this.state.monsterMods.spdMul;
-
-            const m = {
-                id: base.id, name: base.name, img: base.img, boss: !!base.boss,
-                hp: Math.round(base.hp * hpMul),
-                maxHp: Math.round(base.hp * hpMul),
-                atk: Math.round(base.atk * atkMul),
-                speed: Math.round(base.speed * spdMul * 100) / 100,
-                r: base.r,
-                facing: 0,
-                atkCd: 0,
-                stunCd: 0,
-                controlEffect: null,
-                type: base.id,
-                img: base.img,
-                draw: base.draw,
-                tint: base.tint || '#a9aa83',
-                x: 0, y: 0
-            };
-
-            const pos = this._randomArenaPosition(PAD + 60, H - PAD - 60, m.r);
-            m.x = pos.x; m.y = pos.y;
-            this.state.monsters.push(m);
-        }
-
-        const chestCount = floor < this.state.floorCount ? (Math.random() < 0.7 ? 1 : 2) : 0;
-        for (let i = 0; i < chestCount; i++) {
-            this.state.chests.push(Object.assign(this._randomArenaPosition(PAD + 35, H - PAD - 35, 20), { opened: false }));
-        }
-
-        if (window.G.flags.maxFloor < floor) {
-            window.G.flags.maxFloor = floor;
-            window.checkAchievements();
-        }
-
-        window.toast('🏰 ' + dungeon.name + ' · 第' + floor + '/' + this.state.floorCount + '层 · ' + (window.FLOOR_NAMES[floor - 1] || '深处'), 'gold');
-        window.updateHUD();
-
-        if (floor > 1) window.showDualCardChoice();
+    _applyMonsterModifier(key, value) {
+        if (typeof value === 'boolean') this.state.monsterMods[key] = value;
+        else if (key === 'hpMul' || key === 'atkMul' || key === 'spdMul') this.state.monsterMods[key] *= value;
+        else this.state.monsterMods[key] = Math.max(0, (this.state.monsterMods[key] || 0) + value);
     }
 
     _randomArenaPosition(minX, maxY, padding) {
@@ -338,9 +282,9 @@ class CombatSystem {
         window.updateHUD();
 
         try {
-            if (this.useWorker && window.mapGeneratorWorker) {
+            if (this.useWorker && this.mapGeneratorWorker) {
                 const { scenery, landmarks, traps, arena } =
-                    await window.mapGeneratorWorker.generateFullFloor(this.state.floor, this.state.mapSeed, this.state.time);
+                    await this.mapGeneratorWorker.generateFullFloor(this.state.floor, this.state.mapSeed, this.state.time);
 
                 this.state.scenery = scenery;
                 this.state.landmarks = landmarks;
@@ -380,7 +324,9 @@ class CombatSystem {
                     window.learnDungeonTechnique(this.state.dungeonId);
                 }
                 window.saveGame(true);
-                window.onRunClear();
+                if (typeof window.onDungeonClear === 'function') {
+                    window.onDungeonClear();
+                }
             }
         }
     }
@@ -420,6 +366,10 @@ class CombatSystem {
             }
         }
 
+        if (p.mods.regen > 0 && p.hp < p.maxHp) {
+            p.hp = Math.min(p.maxHp, p.hp + p.maxHp * p.mods.regen * dt);
+        }
+
         this._updatePlayerMovement(dt);
         this._updatePlayerAttack(dt);
         this._updateMonsters(dt);
@@ -427,7 +377,7 @@ class CombatSystem {
         this._updateTraps(dt);
         this._updateEffects(dt);
         this._updateChests(dt);
-        this._checkCollisions();
+        this._updateFloorNpc();
         this._checkWinCondition();
     }
 
@@ -449,10 +399,33 @@ class CombatSystem {
             p.walkT += dt;
         }
 
+        if (p.dashCd > 0) p.dashCd = Math.max(0, p.dashCd - dt);
         if (p.dashTime > 0) {
             p.dashTime -= dt;
             p.x = MathUtils.clamp(p.x + p.dashVx * dt, this.constants.PAD + p.r, this.constants.W - this.constants.PAD - p.r);
             p.y = MathUtils.clamp(p.y + p.dashVy * dt, this.constants.PAD + p.r, this.constants.H - this.constants.PAD - p.r);
+        }
+        if (p.mods.dashStrike && p.dashCd <= 0 && p.dashTime <= 0) {
+            const mouse = window.gameInput && window.gameInput.mouse;
+            const dx = (mouse ? mouse.x : p.x + 1) - p.x;
+            const dy = (mouse ? mouse.y : p.y) - p.y;
+            const dist = Math.hypot(dx, dy) || 1;
+            p.dashVx = (dx / dist) * 500;
+            p.dashVy = (dy / dist) * 500;
+            p.dashTime = 0.15;
+            p.dashCd = Math.max(1.5, p.mods.dashCd || 3);
+            p.dashHitSet = new Set();
+        }
+        if (p.mods.dashStrike && p.dashTime > 0) {
+            for (const m of this.state.monsters) {
+                if (m.hp <= 0 || p.dashHitSet.has(m)) continue;
+                if (Math.hypot(m.x - p.x, m.y - p.y) < (p.mods.dashRange || 60) + m.r) {
+                    p.dashHitSet.add(m);
+                    const dmg = Math.round((window.G.atk + (p.mods.atk || 0)) * 0.5);
+                    this.damageMonster(m, { dmg });
+                    window.floatText(m.x, m.y - m.r, '⚔️ ' + dmg, '#ffcc00');
+                }
+            }
         }
     }
 
@@ -467,7 +440,7 @@ class CombatSystem {
 
     tryAttack(isAuto = false) {
         const p = this.state.player;
-        const atkSpeed = 1 + (p.mods.attackSlowTime || 0) > 0 ? 0.5 : 1;
+        const atkSpeed = p.attackSlowTime > 0 ? 0.5 : 1;
         p.atkCd = (0.6 / atkSpeed) * (p.mods.dashStrike ? 0.8 : 1);
         p.swinging = 0.18;
         p.facing = Math.atan2(window.gameInput.mouse.y - p.y, window.gameInput.mouse.x - p.x);
@@ -507,27 +480,115 @@ class CombatSystem {
         const p = this.state.player;
         for (let i = this.state.monsters.length - 1; i >= 0; i--) {
             const m = this.state.monsters[i];
+
+            if (m.flash > 0) m.flash -= dt;
+            if (m.burnTime > 0) {
+                m.burnTime -= dt;
+                m.burnTick = (m.burnTick || 0) - dt;
+                if (m.burnTick <= 0) {
+                    m.burnTick = 0.5;
+                    m.hp -= Math.max(1, Math.round(m.maxHp * 0.02));
+                    window.floatText(m.x, m.y - m.r, '灼烧', '#ff8d5c');
+                }
+            }
+            if (m.poisonTime > 0) {
+                m.poisonTime -= dt;
+                m.poisonTick = (m.poisonTick || 0) - dt;
+                if (m.poisonTick <= 0) {
+                    m.poisonTick = 0.95;
+                    m.hp -= Math.max(1, Math.round(m.maxHp * 0.018));
+                    window.floatText(m.x, m.y - m.r, '中毒', '#a8dc75');
+                }
+            }
+            if (m.regen > 0) m.hp = Math.min(m.maxHp, m.hp + m.maxHp * m.regen * dt);
+
             if (m.stunCd > 0) {
                 m.stunCd -= dt;
+                if (m.hp <= 0) this.killMonster(m, i);
                 continue;
             }
 
             m.atkCd = Math.max(0, m.atkCd - dt);
+            m.shootCd = Math.max(0, (m.shootCd || 0) - dt);
+            m.bossCd = Math.max(0, (m.bossCd || 0) - dt);
+            m.healCd = Math.max(0, (m.healCd || 0) - dt);
 
             const dx = p.x - m.x, dy = p.y - m.y;
             const dist = Math.hypot(dx, dy) || 1;
 
-            if (dist > m.r + p.r + 10) {
+            if (m.healer && m.healCd <= 0) {
+                m.healCd = 3.2;
+                for (const ally of this.state.monsters) {
+                    if (ally === m || ally.hp <= 0) continue;
+                    if (Math.hypot(ally.x - m.x, ally.y - m.y) > 210) continue;
+                    const heal = Math.max(1, Math.ceil(ally.maxHp * 0.08));
+                    ally.hp = Math.min(ally.maxHp, ally.hp + heal);
+                    window.floatText(ally.x, ally.y - ally.r, '妖疗 +' + heal, '#77d68a');
+                    this.state.effects.push({ type: 'element', element: 'heal', x: ally.x, y: ally.y, t: 0, life: 0.4 });
+                }
+            }
+
+            if (m.ranged && m.shootRange > 0 && dist < m.shootRange && m.shootCd <= 0) {
+                this._monsterShoot(m, p, 1);
+                m.shootCd = m.shootInterval || 2.4;
+            }
+
+            if (m.boss && m.bossCd <= 0) {
+                this._bossBurst(m);
+                m.bossCd = 2.6;
+            }
+
+            const desired = m.ranged && m.keepDistance ? m.shootRange * 0.6 : m.r + p.r + 10;
+            if (dist > desired) {
                 const moveSpeed = m.speed * 60;
                 m.x += dx / dist * moveSpeed * dt;
                 m.y += dy / dist * moveSpeed * dt;
                 m.facing = Math.atan2(dy, dx);
-            } else if (m.atkCd <= 0) {
+            } else if (m.keepDistance && dist < desired * 0.55) {
+                const moveSpeed = m.speed * 60;
+                m.x -= dx / dist * moveSpeed * dt;
+                m.y -= dy / dist * moveSpeed * dt;
+                m.facing = Math.atan2(dy, dx);
+            } else if (!m.keepDistance && m.atkCd <= 0) {
                 m.atkCd = 1.2 / (m.speed || 1);
                 this._monsterAttack(m, p);
             }
 
             if (m.hp <= 0) this.killMonster(m, i);
+        }
+    }
+
+    _monsterShoot(monster, player, damageScale = 1) {
+        const angle = Math.atan2(player.y - monster.y, player.x - monster.x);
+        this.state.bullets.push({
+            x: monster.x,
+            y: monster.y,
+            vx: Math.cos(angle) * 170,
+            vy: Math.sin(angle) * 170,
+            r: 6,
+            dmg: Math.max(1, Math.round(monster.atk * damageScale)),
+            color: monster.projectileColor || '#ffb86b',
+            hostile: true,
+            life: 3
+        });
+        this.state.effects.push({ type: 'boom', x: monster.x, y: monster.y, color: monster.projectileColor || '#ffb86b', t: 0, life: 0.2 });
+    }
+
+    _bossBurst(monster) {
+        const count = 8;
+        for (let i = 0; i < count; i++) {
+            const angle = i * Math.PI * 2 / count + Math.random() * 0.2;
+            this.state.bullets.push({
+                x: monster.x,
+                y: monster.y,
+                vx: Math.cos(angle) * 125,
+                vy: Math.sin(angle) * 125,
+                r: 7,
+                dmg: Math.max(1, Math.round(monster.atk * 0.65)),
+                color: '#ff6b6b',
+                hostile: true,
+                life: 3.5
+            });
         }
     }
 
@@ -538,13 +599,31 @@ class CombatSystem {
     }
 
     _updateBullets(dt) {
+        const p = this.state.player;
         for (let i = this.state.bullets.length - 1; i >= 0; i--) {
             const b = this.state.bullets[i];
             if (b.shouldRemove) {
                 this.state.bullets.splice(i, 1);
                 continue;
             }
-            // Bullets are instant (slashes), so they resolve immediately
+            if (b.hostile) {
+                b.x += (b.vx || 0) * dt;
+                b.y += (b.vy || 0) * dt;
+                b.life = (b.life || 3) - dt;
+                if (b.life <= 0 ||
+                    b.x < this.constants.PAD || b.x > this.constants.W - this.constants.PAD ||
+                    b.y < this.constants.PAD || b.y > this.constants.H - this.constants.PAD) {
+                    this.state.bullets.splice(i, 1);
+                    continue;
+                }
+                if (p && Math.hypot(p.x - b.x, p.y - b.y) < p.r + b.r) {
+                    this.hurtPlayer(b.dmg);
+                    this.state.effects.push({ type: 'boom', x: b.x, y: b.y, color: b.color || '#ffb86b', t: 0, life: 0.35 });
+                    this.state.bullets.splice(i, 1);
+                }
+                continue;
+            }
+            // 玩家近战斩击是瞬发的，生成后立即结算
             this._resolveBullet(b);
             this.state.bullets.splice(i, 1);
         }
@@ -562,15 +641,24 @@ class CombatSystem {
     }
 
     damageMonster(monster, bullet) {
-        let dmg = bullet.dmg;
-        if (bullet.isCrit) dmg = Math.round(dmg * 1.8);
-
-        const actualDmg = Math.max(1, dmg);
+        // bullet.dmg 在 tryAttack 中已经计算过暴击，这里不再重复乘 1.8
+        const dmg = bullet.dmg;
+        let actualDmg = Math.max(1, dmg);
+        if (monster.shield > 0) {
+            const blocked = Math.min(monster.shield, actualDmg);
+            monster.shield -= blocked;
+            actualDmg -= blocked;
+            this.state.effects.push({ type: 'element', element: 'shield', x: monster.x, y: monster.y, t: 0, life: 0.35 });
+        }
         monster.hp -= actualDmg;
         monster.flash = 0.12;
 
         window.floatText(monster.x, monster.y - monster.r, bullet.isCrit ? '暴击 -' + actualDmg : '-' + actualDmg,
             bullet.isCrit ? '#ffd700' : '#ff6b6b');
+
+        if (monster.thorns > 0 && actualDmg > 0) {
+            this.hurtPlayer(Math.max(1, Math.round(actualDmg * monster.thorns)));
+        }
 
         if (bullet.elemFire) {
             monster.burnTime = Math.max(monster.burnTime || 0, 2.5);
@@ -646,7 +734,7 @@ class CombatSystem {
                         x: trap.x, y: trap.y,
                         vx: Math.cos(angle) * 165, vy: Math.sin(angle) * 165,
                         r: 6, dmg: Math.max(6, Math.ceil(p.maxHp * 0.06)),
-                        color: '#8df2ed'
+                        color: '#8df2ed', hostile: true, life: 3
                     });
                 }
                 this.state.effects.push({ type: 'boom', x: trap.x, y: trap.y, color: '#8df2ed', t: 0, life: 0.55 });
@@ -767,8 +855,38 @@ class CombatSystem {
 
     _openChest(chest) {
         this.state.effects.push({ type: 'boom', x: chest.x, y: chest.y, color: '#ffd700', t: 0, life: 0.6 });
-        window.floatText(chest.x, chest.y - 30, '🎁 宝箱', '#ffd700');
-        // Reward logic here
+        const roll = Math.random();
+        const p = this.state.player;
+        if (roll < 0.3) {
+            const heal = 40;
+            p.hp = Math.min(p.maxHp, p.hp + heal);
+            window.floatText(chest.x, chest.y - 20, '💊 回春 +' + heal + 'HP', '#66ff99');
+        } else if (roll < 0.5) {
+            window.G.atk += 2;
+            window.floatText(chest.x, chest.y - 20, '⚔️ 攻击+2', '#ffd700');
+        } else if (roll < 0.7) {
+            window.G.maxHp += 15;
+            p.maxHp = window.G.maxHp;
+            p.hp = Math.min(p.maxHp, p.hp + 15);
+            window.floatText(chest.x, chest.y - 20, '🛡️ 生命上限+15', '#7df9ff');
+        } else if (roll < 0.85) {
+            window.G.crit = Math.min(80, window.G.crit + 5);
+            window.floatText(chest.x, chest.y - 20, '🎯 暴击+5%', '#ff88cc');
+        } else {
+            const cult = 30 + this.state.floor * 8;
+            window.gainCultivation(cult);
+            window.floatText(chest.x, chest.y - 20, '🌀 修为+' + cult, '#7fffd4');
+        }
+    }
+
+    _updateFloorNpc() {
+        const npc = this.state.floorNpc;
+        const p = this.state.player;
+        if (!npc || npc.used || !p) return;
+        if (Math.hypot(p.x - npc.x, p.y - npc.y) < 62 && typeof window.onDungeonNpcNearby === 'function') {
+            npc.used = true;
+            window.onDungeonNpcNearby(npc);
+        }
     }
 
     _checkCollisions() {
@@ -793,7 +911,9 @@ class CombatSystem {
         const alive = this.state.monsters.filter(m => m.hp > 0);
         if (alive.length === 0 && this.state.state === 'playing') {
             this.state.state = 'clear';
-            window.onFloorClear(this.state.floor);
+            if (typeof window.onDungeonFloorClear === 'function') {
+                window.onDungeonFloorClear(this.state.floor);
+            }
         }
     }
 
@@ -826,9 +946,16 @@ class CombatSystem {
         window.floatText(p.x, p.y - 24, '-' + actualDmg, '#ff6b6b');
 
         if (p.hp <= 0) {
+            this.state.state = 'clear';
             window.G.flags.deaths = (window.G.flags.deaths || 0) + 1;
             this.state.noDeathRun = false;
-            window.onPlayerDeath();
+            window.G.hp = 1;
+            window.toast('💀 你被击倒了……被秘境之力送回入口', 'bad');
+            window.checkAchievements();
+            window.saveGame(false);
+            if (typeof window.onDungeonDeath === 'function') {
+                window.onDungeonDeath();
+            }
         }
     }
 
@@ -850,11 +977,36 @@ class CombatSystem {
 
         this.state.effects.push({ type: 'boom', x: monster.x, y: monster.y, color: monster.tint || '#ff6b6b', t: 0, life: 0.5 });
 
-        if (index !== undefined) {
+        if (index !== undefined && this.state.monsters[index] === monster) {
             this.state.monsters.splice(index, 1);
         } else {
             const idx = this.state.monsters.indexOf(monster);
             if (idx >= 0) this.state.monsters.splice(idx, 1);
+        }
+
+        if (monster.explode) {
+            const p = this.state.player;
+            if (p && Math.hypot(p.x - monster.x, p.y - monster.y) < 110) {
+                this.hurtPlayer(monster.atk);
+            }
+            this.state.effects.push({ type: 'boom', x: monster.x, y: monster.y, color: '#ff743e', t: 0, life: 0.6 });
+        }
+
+        if (monster.splitOnDeath && !monster.splitChild) {
+            for (let i = 0; i < 2; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                this.state.monsters.push(Object.assign({}, monster, {
+                    x: monster.x + Math.cos(angle) * 22,
+                    y: monster.y + Math.sin(angle) * 22,
+                    hp: Math.max(1, Math.round(monster.maxHp / 3)),
+                    maxHp: Math.max(1, Math.round(monster.maxHp / 3)),
+                    r: Math.max(8, monster.r * 0.7),
+                    splitChild: true,
+                    splitOnDeath: false,
+                    explode: false,
+                    shield: 0
+                }));
+            }
         }
     }
 

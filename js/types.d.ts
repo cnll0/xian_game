@@ -679,6 +679,7 @@ interface RuntimeState {
     player: WorldPlayer | null;
     camera: Camera;
     zone: string;
+    time: number;
     decor: SceneryItem[];
     actors: WorldActor[];
     creatures: WorldCreature[];

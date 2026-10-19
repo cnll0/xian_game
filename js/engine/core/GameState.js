@@ -100,6 +100,7 @@ class GameState {
                 player: null,
                 camera: { x: 0, y: 0 },
                 zone: 'overworld',
+                time: 0,
                 decor: [],
                 actors: [],
                 creatures: [],
@@ -124,10 +125,12 @@ class GameState {
         };
 
         /** @type {Assets} */
-        this.assets = {
+        this.runtime.assets = {
             images: {},
             floorPattern: null
         };
+        // 兼容旧代码：assets 与 runtime.assets 指向同一对象
+        this.assets = this.runtime.assets;
     }
 
     /**
@@ -187,6 +190,7 @@ class GameState {
         this.runtime.world.player = null;
         this.runtime.world.camera = { x: 0, y: 0 };
         this.runtime.world.zone = 'overworld';
+        this.runtime.world.time = 0;
         this.runtime.world.decor = [];
         this.runtime.world.actors = [];
         this.runtime.world.creatures = [];

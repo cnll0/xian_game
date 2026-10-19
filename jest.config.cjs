@@ -16,20 +16,5 @@ module.exports = {
       statements: 50
     }
   },
-  setupFilesAfterSetup: ['<rootDir>/js/__tests__/setup.js'],
-  globals: {
-    window: {},
-    document: {},
-    console: console,
-    requestAnimationFrame: (cb) => setTimeout(cb, 16),
-    cancelAnimationFrame: (id) => clearTimeout(id),
-    localStorage: {
-      getItem: jest.fn(),
-      setItem: jest.fn(),
-      removeItem: jest.fn(),
-      clear: jest.fn(),
-      key: jest.fn(),
-      length: 0
-    }
-  }
+  setupFilesAfterEnv: ['<rootDir>/js/__tests__/setup.js']
 };

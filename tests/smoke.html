@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <base href="../" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>修仙传说2D·第一章：灵气觉醒</title>
+    <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+    <div id="app">
+        <div id="gameShell" class="game-shell">
+            <header class="hud">
+                <div class="hud-left">
+                    <span id="hudName">无名 · 炼气一重</span>
+                    <div class="hp-bar"><div id="hudHpFill" class="hp-fill"></div><span id="hudHpText">100/100</span></div>
+                </div>
+
+                <div id="npcOverlay" class="overlay">
+                    <div class="npc-dialog">
+                        <div class="npc-portrait-frame">
+                            <canvas id="npcPortrait" width="200" height="250" role="img" aria-label="NPC立绘"></canvas>
+                        </div>
+                        <div class="npc-dialog-content">
+                            <div class="npc-dialog-heading">
+                                <div><span id="npcFaction"></span><h2 id="npcName"></h2><small id="npcTitle"></small></div>
+                                <span id="npcRelation" class="npc-relation"></span>
+                            </div>
+                            <p id="npcDialogue" class="story-desc"></p>
+                            <div id="npcOptions" class="story-options"></div>
+                            <button class="btn-secondary npc-leave" onclick="closeNpcDialog()">先告辞</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="dungeonSelectOverlay" class="overlay">
+                    <div class="dungeon-select-box overlay-content">
+                        <div class="codex-header">
+                            <div><h2>探索秘境</h2><p class="dungeon-intro">境界越高，可探索的秘境越深。秘境深处会遇见不同人物：有人提供援助，也有人提出危险交易。靠近后按 E 交谈。</p></div>
+                            <button class="btn-icon" onclick="hideOverlay('dungeonSelectOverlay')">✕</button>
+                        </div>
+                        <div id="dungeonChoices" class="dungeon-choices"></div>
+                    </div>
+                </div>
+
+                <div id="techniquesOverlay" class="overlay">
+                    <div class="techniques-box overlay-content">
+                        <div class="codex-header">
+                            <div><h2>📘 已学功法</h2><p class="dungeon-intro">已参悟的功法会永久记入道途，并在每次出战时生效。</p></div>
+                            <button class="btn-icon" onclick="hideOverlay('techniquesOverlay')">✕</button>
+                        </div>
+                        <div id="techniquesList" class="techniques-list"></div>
+                    </div>
+                </div>
+                <div class="hud-mid">
+                    <span id="hudCult">🌀0</span>
+                    <span id="hudStats">⚔️10 💨3.2 🎯5%</span>
+                    <span id="hudFloor">🏰秘境</span>
+                    <span id="hudAch">🏆0/9</span>
+                </div>
+                <div class="hud-right">
+                    <button id="saveBtn" class="btn-icon" title="存档">💾</button>
+                    <button id="menuBtn" class="btn-icon" title="菜单">☰</button>
+                </div>
+            </header>
+
+            <div class="canvas-wrap">
+                <canvas id="gameCanvas" width="960" height="540"></canvas>
+                <div id="joyZone" class="joy-zone">
+                    <div id="joyBase" class="joy-base"><div id="joyKnob" class="joy-knob"></div></div>
+                </div>
+                <div id="worldHint" class="world-hint">WASD / 方向键 / 摇杆移动 · 靠近人物、遗迹或擂台会触发故事</div>
+                <button id="interactBtn" class="interact-btn">📜 触发剧情 <small>E</small></button>
+                <button id="atkBtn" class="atk-btn">⚔️</button>
+            </div>
+
+            <footer class="action-bar">
+                <button id="btnDungeon" class="action-btn primary">🏰 探索秘境</button>
+                <button id="btnStory" class="action-btn">👣 探索</button>
+                <button id="btnHeal" class="action-btn">🌿 疗伤</button>
+            </footer>
+        </div>
+    </div>
+
+    <!-- 登录 -->
+    <div id="loginOverlay" class="overlay active">
+        <div class="login-box">
+            <div class="login-bg"></div>
+            <div class="login-title">⚔️ 修仙传说2D</div>
+            <div class="login-sub">2D动作修仙 · 斩妖闯秘境</div>
+            <input id="loginName" type="text" placeholder="道号（2-12字）" maxlength="12" />
+            <input id="loginPass" type="password" placeholder="密码" maxlength="20" />
+            <button id="loginBtn" class="btn-primary">登录 / 创建本地账号</button>
+            <div id="loginHint" class="hint">账号与进度仅保存在此浏览器；密码不会上传，不支持跨设备同步</div>
+            <button id="guestBtn" class="btn-secondary">👻 游客模式（本地存档）</button>
+        </div>
+    </div>
+
+    <!-- 选出身 -->
+    <div id="createOverlay" class="overlay">
+        <div class="create-box">
+            <div class="create-title">🌟 选择你的出身</div>
+            <div class="origin-grid" id="originGrid"></div>
+            <button id="startGameBtn" class="btn-primary" disabled>开始修仙</button>
+        </div>
+    </div>
+
+    <!-- 成就 -->
+    <div id="achOverlay" class="overlay">
+        <div class="ach-box overlay-content">
+            <div class="ach-header">
+                <h2>🏆 成就系统</h2>
+                <div class="ach-summary">已解锁 <span id="achUnlocked">0</span> / <span id="achTotal">0</span></div>
+                <button class="btn-icon" onclick="hideOverlay('achOverlay')">✕</button>
+            </div>
+            <div class="ach-tabs">
+                <button class="ach-tab active" data-atab="all">全部</button>
+                <button class="ach-tab" data-atab="unlocked">已解锁</button>
+                <button class="ach-tab" data-atab="locked">未解锁</button>
+            </div>
+            <div class="ach-grid" id="achGrid"></div>
+        </div>
+    </div>
+
+    <!-- 图鉴 -->
+    <div id="codexOverlay" class="overlay">
+        <div class="codex-box overlay-content">
+            <div class="codex-header">
+                <h2>📖 修仙图鉴</h2>
+                <button class="btn-icon" onclick="hideOverlay('codexOverlay')">✕</button>
+            </div>
+            <div class="codex-tabs">
+                <button class="codex-tab active" data-ctab="monster">👹 妖魔志</button>
+                <button class="codex-tab" data-ctab="player">🧑 修仙录</button>
+                <button class="codex-tab" data-ctab="card">🃏 机缘录</button>
+                <button class="codex-tab" data-ctab="item">🎒 物品志</button>
+            </div>
+            <div class="codex-panels">
+                <div class="codex-panel" id="codex-monster"></div>
+                <div class="codex-panel hidden" id="codex-player"></div>
+                <div class="codex-panel hidden" id="codex-card"></div>
+                <div class="codex-panel hidden" id="codex-item"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 双向卡牌选择 -->
+    <div id="dualCardOverlay" class="overlay">
+        <div class="dual-card-box overlay-content"></div>
+    </div>
+
+    <!-- 剧情对话 -->
+    <div id="storyOverlay" class="overlay">
+        <div class="story-box">
+            <div class="story-tag" id="storyTag">📖 第一章</div>
+            <h2 class="story-title" id="storyTitle"></h2>
+            <p class="story-desc" id="storyDesc"></p>
+            <div class="story-options" id="storyOptions"></div>
+        </div>
+    </div>
+
+    <!-- 卡牌三选一 -->
+    <div id="cardsOverlay" class="overlay">
+        <div class="cards-box">
+            <h2 id="cardsTitle">✨ 择一机缘</h2>
+            <div class="card-choices" id="cardChoices"></div>
+        </div>
+    </div>
+
+    <!-- 菜单 -->
+    <div id="menuOverlay" class="overlay">
+        <div class="menu-box">
+            <h3>⚙️ 游戏菜单</h3>
+            <button class="menu-item" onclick="showSaveLoad()">💾 存档管理</button>
+            <button class="menu-item" onclick="showAchievements()">🏆 成就</button>
+            <button class="menu-item" onclick="showCodex()">📖 图鉴</button>
+            <button class="menu-item" onclick="showTechniques()">📘 功法</button>
+            <button class="menu-item danger" onclick="confirmReset()">🔄 重新开始</button>
+            <button class="menu-item" onclick="closeMenu()">关闭</button>
+        </div>
+    </div>
+
+    <!-- 存档 -->
+    <div id="saveLoadOverlay" class="overlay">
+        <div class="save-box">
+            <h3>💾 本机存档</h3>
+            <p class="save-meta">存档只保存在当前浏览器。清除浏览器数据或更换设备会导致进度无法读取。</p>
+            <div class="save-content" id="saveLocalContent"></div>
+            <button class="btn-secondary" onclick="closeSaveLoad()">关闭</button>
+        </div>
+    </div>
+
+    <!-- 结算 -->
+    <div id="endingOverlay" class="overlay">
+        <div class="ending-box">
+            <span class="ending-emoji" id="endEmoji">🏆</span>
+            <h2 class="ending-title" id="endTitle"></h2>
+            <p class="ending-desc" id="endDesc"></p>
+            <div class="ending-stats" id="endStats"></div>
+            <button class="btn-primary" onclick="hideOverlay('endingOverlay');updateHUD();">继续修行</button>
+        </div>
+    </div>
+
+    <div id="toastContainer"></div>
+
+    <script>
+// 确定性 rAF：让无头浏览器可以手动推进帧
+window.__rafQueue = [];
+window.__consoleErrors = [];
+const __origConsoleError = console.error;
+console.error = (...args) => { window.__consoleErrors.push(args.map(String).join(' ')); __origConsoleError.apply(console, args); };
+window.requestAnimationFrame = (cb) => { window.__rafQueue.push(cb); return window.__rafQueue.length; };
+window.cancelAnimationFrame = () => {};
+window.__stepRaf = (ts) => {
+    const queue = window.__rafQueue.splice(0);
+    queue.forEach(cb => cb(ts));
+};
+</script>
+    <!-- 模块加载顺序 -->
+    <script src="js/engine/utils/MathUtils.js"></script>
+    <script src="js/engine/utils/AssetLoader.js"></script>
+    <script src="js/engine/utils/ObjectPool.js"></script>
+    <script src="js/engine/core/EventBus.js"></script>
+    <script src="js/engine/core/GameState.js"></script>
+    <script src="js/engine/core/InputManager.js"></script>
+    <script src="js/engine/world/MapGenerator.js"></script>
+    <script src="js/engine/world/MapGeneratorWorker.js"></script>
+    <script src="js/engine/world/WorldSystem.js"></script>
+    <script src="js/engine/world/NPCManager.js"></script>
+    <script src="js/engine/systems/CombatSystem.js"></script>
+    <script src="js/engine/systems/CardSystem.js"></script>
+    <script src="js/engine/render/WorldRenderer.js"></script>
+    <script src="js/engine/render/Renderer.js"></script>
+    <script src="js/engine/Engine.js"></script>
+    <script src="js/engine/compat.js"></script>
+
+    <!-- 游戏数据与逻辑 -->
+    <script src="js/data.js"></script>
+    <script src="js/save.js"></script>
+    <script src="js/story.js"></script>
+    <script src="js/main.js"></script>
+<pre id="auditResult">RUNNING</pre>
+<script>
+window.__auditErrors = [];
+window.addEventListener('error', e => window.__auditErrors.push('ERROR: ' + e.message + ' @' + (e.filename || '') + ':' + (e.lineno || '')));
+window.addEventListener('unhandledrejection', e => window.__auditErrors.push('REJECT: ' + (e.reason && e.reason.message || e.reason)));
+window.__audit = [];
+function __record(label, value) {
+    window.__audit.push(label + '=' + (typeof value === 'string' ? value : JSON.stringify(value)));
+}
+function __step(n, start) {
+    window.__auditTs = start || window.__auditTs || 16;
+    for (let i = 0; i < n; i++) {
+        window.__auditTs += 16;
+        window.__stepRaf(window.__auditTs);
+    }
+    return window.__auditTs;
+}
+function __activeOverlay() {
+    const el = document.querySelector('.overlay.active');
+    return el ? el.id : null;
+}
+window.addEventListener('DOMContentLoaded', () => {
+    setTimeout(() => {
+        (async () => {
+            try {
+                const inst = window.Engine && window.Engine.getInstance ? window.Engine.getInstance() : null;
+                __record('EngineClass', typeof window.Engine);
+                __record('EngineInstance', !!inst);
+                __record('systems', inst && { world: !!inst.worldSystem, combat: !!inst.combatSystem, card: !!inst.cardSystem, renderer: !!inst.renderer });
+                __record('assets', inst && inst.gameState.runtime.assets && Object.keys(inst.gameState.runtime.assets.images).length);
+                await guestLogin();
+                newGame('poor');
+                __step(10);
+                __record('afterNewGame', { state: inst.gameState.runtime.state, running: inst.gameState.runtime.running, overlay: __activeOverlay(), zone: inst.gameState.runtime.world.zone });
+                let guard = 0;
+                while (__activeOverlay() && guard++ < 5) {
+                    __record('close', __activeOverlay());
+                    hideOverlay(__activeOverlay());
+                    __step(3);
+                }
+                const wp = inst.gameState.runtime.world.player;
+                __record('worldPlayer', wp && { x: Math.round(wp.x), y: Math.round(wp.y) });
+                const x0 = wp && wp.x;
+                inst.inputManager.keys['KeyD'] = true;
+                __step(40);
+                inst.inputManager.keys['KeyD'] = false;
+                __record('move.deltaX', wp ? +(wp.x - x0).toFixed(2) : null);
+                __record('world.time', +inst.gameState.runtime.world.time.toFixed(2));
+                __record('overlayAfterMove', __activeOverlay());
+                while (__activeOverlay() && guard++ < 8) { hideOverlay(__activeOverlay()); __step(3); }
+                if (location.search === '?visual=1') {
+                    __record('visual', 'world-ready');
+                    __record('errors', window.__auditErrors);
+                    document.getElementById('auditResult').textContent = window.__audit.join('\n');
+                    return;
+                }
+                Engine.startRun(1, false, 'qingyun', false);
+                await new Promise(r => setTimeout(r, 700));
+                __step(10);
+                const run = inst.gameState.runtime;
+                __record('run', { state: run.state, floor: run.floor, monsters: run.monsters.length, player: !!run.player, overlay: __activeOverlay() });
+                __record('traps', run.traps.map(t => t.type));
+                __record('playerStart', { atkCd: run.player && run.player.atkCd, slow: run.player && run.player.attackSlowTime });
+                if (location.search.indexOf('test=ranged') >= 0) {
+                    const m = run.monsters[0];
+                    m.ranged = true;
+                    m.keepDistance = true;
+                    m.shootRange = 300;
+                    m.shootInterval = 1;
+                    m.shootCd = 0;
+                    m.atk = 10;
+                    run.player.x = m.x + 180;
+                    run.player.y = m.y;
+                    const hp0 = run.player.hp;
+                    __step(100);
+                    __record('ranged', { hostileBullets: run.bullets.filter(b => b.hostile).length, hpDrop: hp0 - run.player.hp, playerHp: run.player.hp });
+                    __record('errors', window.__auditErrors);
+                    document.getElementById('auditResult').textContent = window.__audit.join('\n');
+                    return;
+                }
+                if (location.search.indexOf('visual=dungeon') >= 0) {
+                    __record('dungeonCounts', { scenery: run.scenery.length, landmarks: run.landmarks.length, traps: run.traps.length, player: !!run.player, monsters: run.monsters.length });
+                    __step(30);
+                    __record('visual', 'dungeon-ready');
+                    __record('consoleErrors', window.__consoleErrors);
+                    __record('errors', window.__auditErrors);
+                    document.getElementById('auditResult').textContent = window.__audit.join('\n');
+                    return;
+                }
+                if (run.monsters.length && run.player) {
+                    const m = run.monsters[0];
+                    run.player.x = m.x - 20;
+                    run.player.y = m.y;
+                    inst.inputManager.mouse.x = m.x;
+                    inst.inputManager.mouse.y = m.y;
+                    const hp0 = m.hp;
+                    __record('attack.pre', { atkPressed: inst.inputManager.attackPressed, gameInput: window.gameInput && { a: window.gameInput.attackPressed, hasMouse: !!window.gameInput.mouse }, atkCd: run.player.atkCd, slow: run.player.attackSlowTime, dist: Math.hypot(run.player.x - m.x, run.player.y - m.y) });
+                    run.player.attackSlowTime = 0;
+                    run.player.atkCd = 0;
+                    document.getElementById('gameCanvas').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                    __step(1);
+                    __record('attack.after1', { attackPressed: window.gameInput && window.gameInput.attackPressed, swinging: run.player.swinging, atkCd: run.player.atkCd, bullets: run.bullets.length, hp: m.hp });
+                    __step(3);
+                    window.dispatchEvent(new MouseEvent('mouseup'));
+                    __record('attack.drop', hp0 - m.hp);
+                }
+                __record('hud.hpText', document.getElementById('hudHpText') ? document.getElementById('hudHpText').textContent : 'MISSING');
+                try {
+                    run.monsters.forEach(m => { m.hp = 0; });
+                    inst.combatSystem._checkWinCondition();
+                    await new Promise(r => setTimeout(r, 900));
+                    __step(10);
+                    __record('floorClear', { floor: run.floor, state: run.state, monsters: run.monsters.length, overlay: __activeOverlay() });
+                    const cards = document.querySelectorAll('.dual-choice-card');
+                    __record('cardChoices', cards.length);
+                    if (cards.length) {
+                        cards[0].click();
+                        __step(3);
+                        __record('cardPick', { state: run.state, overlay: __activeOverlay(), playerRanks: run.cards.player });
+                    }
+                } catch (e) { __record('floorClear.error', e.message); }
+                try { showCodex(); __record('codex', 'opened'); }
+                catch (e) { __record('codex.error', e.message); }
+                try { showAchievements(); __record('achievements', 'opened'); }
+                catch (e) { __record('achievements.error', e.message); }
+                saveGame(true);
+                __record('save.exists', !!localStorage.getItem('xian2d_save_' + G.username));
+            } catch (e) {
+                __record('FATAL', e.message + ' | ' + (e.stack || '').split('\n').slice(0, 5).join(' <> '));
+            }
+            __record('errors', window.__auditErrors);
+            document.getElementById('auditResult').textContent = window.__audit.join('\n');
+        })();
+    }, 2000);
+});
+</script>
+</body>
+</html>

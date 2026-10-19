@@ -19,6 +19,45 @@ const localStorageMock = {
 };
 Object.defineProperty(global, 'localStorage', { value: localStorageMock, writable: true });
 
+// jsdom 的 canvas 默认没有 2D 上下文，提供一个最小 mock
+if (typeof window !== 'undefined' && window.HTMLCanvasElement) {
+  window.HTMLCanvasElement.prototype.getContext = function () {
+    return {
+      canvas: this,
+      fillRect: jest.fn(), clearRect: jest.fn(), drawImage: jest.fn(),
+      fillText: jest.fn(), strokeText: jest.fn(),
+      measureText: () => ({ width: 100 }),
+      beginPath: jest.fn(), arc: jest.fn(), ellipse: jest.fn(),
+      moveTo: jest.fn(), lineTo: jest.fn(), quadraticCurveTo: jest.fn(),
+      bezierCurveTo: jest.fn(), closePath: jest.fn(),
+      fill: jest.fn(), stroke: jest.fn(), save: jest.fn(), restore: jest.fn(),
+      translate: jest.fn(), scale: jest.fn(), rotate: jest.fn(),
+      setLineDash: jest.fn(),
+      createPattern: jest.fn(() => 'pattern'),
+      createLinearGradient: jest.fn(() => ({ addColorStop: jest.fn() })),
+      font: '', textAlign: '', textBaseline: '',
+      fillStyle: '', strokeStyle: '', lineWidth: 1, globalAlpha: 1,
+      shadowColor: '', shadowBlur: 0, imageSmoothingEnabled: true
+    };
+  };
+}
+
+// jsdom 没有 Touch/TouchEvent
+if (typeof global.Touch === 'undefined') {
+  global.Touch = class Touch {
+    constructor(init = {}) { Object.assign(this, init); }
+  };
+}
+if (typeof global.TouchEvent === 'undefined') {
+  global.TouchEvent = class TouchEvent extends Event {
+    constructor(type, init = {}) {
+      super(type);
+      this.changedTouches = init.changedTouches || [];
+      this.touches = init.touches || this.changedTouches;
+    }
+  };
+}
+
 // 模拟canvas
 global.HTMLCanvasElement = class {
   constructor() {
@@ -268,9 +307,25 @@ global.checkAchievements = jest.fn();
 global.originAvatar = (o) => `https://api.dicebear.com/9.x/adventurer/svg?seed=${o.avatarSeed}`;
 global.drawNpcPortrait = jest.fn(() => true);
 
+if (typeof window !== 'undefined') {
+    window.Image = global.Image;
+    window.requestAnimationFrame = global.requestAnimationFrame;
+    window.cancelAnimationFrame = global.cancelAnimationFrame;
+    try { window.localStorage = global.localStorage; } catch (e) { /* jsdom 自带 localStorage */ }
+}
+
 // 加载被测模块
 require('../engine/utils/MathUtils.js');
+require('../engine/utils/AssetLoader.js');
 require('../engine/utils/ObjectPool.js');
 require('../engine/core/EventBus.js');
 require('../engine/core/GameState.js');
 require('../engine/core/InputManager.js');
+
+// 模块通过 window.X 暴露类；测试里直接使用裸类名
+for (const name of ['MathUtils', 'SeededRandom', 'ObjectPool', 'PoolTypes', 'EventBus',
+    'GameState', 'InputManager', 'AssetLoader']) {
+    if (typeof window !== 'undefined' && window[name]) {
+        global[name] = window[name];
+    }
+}

@@ -18,6 +18,8 @@ const G = {
     story: { node: 's0', done: [] },
     achievements: []
 };
+// 模块化引擎通过 window.G 访问全局进度；旧引擎仍使用顶层 const G
+window.G = G;
 
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 

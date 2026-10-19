@@ -534,3 +534,42 @@ body {
     .overlay > div { padding: 18px; }
     .dual-cards { flex-direction: column; }
 }
+
+/* 模块化 CardSystem 使用的双向卡牌布局 */
+.dual-choice-grid { display: flex; gap: 18px; align-items: flex-start; }
+.dual-column { flex: 1; min-width: 0; }
+.dual-column h4 { color: var(--purple); margin: 0 0 10px; text-align: center; font-size: 15px; }
+.dual-choice-card {
+    position: relative;
+    margin-bottom: 10px;
+    padding: 14px;
+    border: 2px solid var(--border);
+    border-radius: 14px;
+    background: linear-gradient(160deg, #2d1b0e, #1a1208);
+    color: #f0e0c0;
+    cursor: pointer;
+    transition: 0.2s;
+}
+.dual-choice-card:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.4); }
+.dual-choice-card.pure { border-color: #2a6d4c; }
+.dual-choice-card.mixed { border-color: var(--purple); }
+.dual-choice-card.cursed { border-color: var(--red); }
+.dual-choice-card.monster { border-color: #8a3a4a; }
+.dual-choice-card.common { border-color: #666; }
+.dual-choice-card.uncommon { border-color: #7df9ff; }
+.dual-choice-card.rare { border-color: #ffd700; }
+.dual-choice-card .card-art { display: block; width: auto; height: auto; margin-bottom: 6px; font-size: 28px; line-height: 1; }
+.dual-choice-card .rarity {
+    position: absolute; top: 9px; right: 9px; padding: 2px 7px; border-radius: 8px;
+    background: #555; font-size: 10px; font-weight: 700;
+}
+.dual-choice-card.uncommon .rarity { background: #7df9ff; color: #1a1208; }
+.dual-choice-card.rare .rarity { background: #ffd700; color: #1a1208; }
+.dual-choice-card.cursed .rarity { background: #ff6678; color: #fff; }
+.dual-choice-card .card-name { font-weight: 700; color: var(--gold-light); margin: 0 52px 6px 0; }
+.dual-choice-card .card-desc { color: #c9b8a0; font-size: 12px; line-height: 1.5; }
+.dual-choice-card .card-effects { margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(218,207,190,0.25); }
+.dual-choice-card .enemy-effect .val { color: #ff8477; }
+@media (max-width: 700px) {
+    .dual-choice-grid { flex-direction: column; }
+}

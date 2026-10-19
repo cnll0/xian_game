@@ -202,9 +202,27 @@
 
     <div id="toastContainer"></div>
 
+    <!-- 模块加载顺序 -->
+    <script src="js/engine/utils/MathUtils.js"></script>
+    <script src="js/engine/utils/AssetLoader.js"></script>
+    <script src="js/engine/utils/ObjectPool.js"></script>
+    <script src="js/engine/core/EventBus.js"></script>
+    <script src="js/engine/core/GameState.js"></script>
+    <script src="js/engine/core/InputManager.js"></script>
+    <script src="js/engine/world/MapGenerator.js"></script>
+    <script src="js/engine/world/MapGeneratorWorker.js"></script>
+    <script src="js/engine/world/WorldSystem.js"></script>
+    <script src="js/engine/world/NPCManager.js"></script>
+    <script src="js/engine/systems/CombatSystem.js"></script>
+    <script src="js/engine/systems/CardSystem.js"></script>
+    <script src="js/engine/render/WorldRenderer.js"></script>
+    <script src="js/engine/render/Renderer.js"></script>
+    <script src="js/engine/Engine.js"></script>
+    <script src="js/engine/compat.js"></script>
+
+    <!-- 游戏数据与逻辑 -->
     <script src="js/data.js"></script>
     <script src="js/save.js"></script>
-    <script src="js/engine.js"></script>
     <script src="js/story.js"></script>
     <script src="js/main.js"></script>
 </body>

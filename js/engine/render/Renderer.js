@@ -353,7 +353,7 @@ class SceneryRenderer {
                 ctx.ellipse(0, 0, item.w * 0.5, item.h * 0.5, 0, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.globalAlpha = 1;
-                break.
+                break;
             case 'frozen-pond':
                 ctx.fillStyle = item.color;
                 ctx.globalAlpha = 0.5;
@@ -378,7 +378,7 @@ class SceneryRenderer {
                 ctx.beginPath();
                 ctx.ellipse(0, 0, item.w * 0.5, item.h * 0.5, 0, 0, Math.PI * 2);
                 ctx.stroke();
-                break.
+                break;
         }
         ctx.restore();
     }
@@ -394,6 +394,10 @@ class SceneryRenderer {
 
 class EntityRenderer {
     static render(ctx, gameState) {
+        this._drawChests(ctx, gameState);
+        this._drawFloorNpc(ctx, gameState);
+        this._drawPortal(ctx, gameState);
+
         const p = gameState.runtime.player;
         if (p) this._drawPlayer(ctx, p, gameState);
 
@@ -401,9 +405,61 @@ class EntityRenderer {
         gameState.runtime.bullets.forEach(b => this._drawBullet(ctx, b));
     }
 
+    static _drawChests(ctx, gameState) {
+        const img = gameState.runtime.assets.images.chest;
+        if (!img) return;
+        for (const chest of gameState.runtime.chests) {
+            ctx.save();
+            ctx.globalAlpha = chest.opened ? 0.35 : 1;
+            const size = chest.opened ? 36 : 40;
+            ctx.drawImage(img, chest.x - size / 2, chest.y - size / 2, size, size);
+            ctx.restore();
+        }
+    }
+
+    static _drawFloorNpc(ctx, gameState) {
+        const npc = gameState.runtime.floorNpc;
+        if (!npc) return;
+        const images = gameState.runtime.assets.images;
+        const bob = Math.sin(gameState.runtime.time * 2.8 + npc.phase) * 2;
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,0.32)';
+        ctx.beginPath();
+        ctx.ellipse(npc.x, npc.y + 25, 21, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        if (window.WorldRenderer) {
+            window.WorldRenderer._drawNpcSprite(ctx, images, npc.npc.id, npc.x, npc.y + bob, 70);
+        }
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(14,17,15,0.9)';
+        ctx.fillStyle = '#fff0c2';
+        ctx.strokeText(npc.npc.name, npc.x, npc.y - 44);
+        ctx.fillText(npc.npc.name, npc.x, npc.y - 44);
+        if (!npc.used) {
+            ctx.font = '10px sans-serif';
+            ctx.fillStyle = '#ffe7aa';
+            ctx.fillText('靠近交谈  E', npc.x, npc.y - 30);
+        }
+        ctx.restore();
+    }
+
+    static _drawPortal(ctx, gameState) {
+        const portal = gameState.runtime.portal;
+        if (!portal) return;
+        const img = gameState.runtime.assets.images.portal;
+        if (!img) return;
+        const pulse = 1 + Math.sin(portal.t * 4) * 0.08;
+        ctx.drawImage(img, portal.x - 32 * pulse, portal.y - 32 * pulse, 64 * pulse, 64 * pulse);
+    }
+
     static _drawPlayer(ctx, p, gameState) {
-        const img = gameState.runtime.assets.images[p.anim.dirMap.down] ||
-            gameState.runtime.assets.images.player;
+        const images = gameState.runtime.assets.images;
+        const direction = window.WorldRenderer
+            ? window.WorldRenderer._characterDirection(p.facing || 0).direction
+            : 'south';
+        const img = images['player_' + direction] || images.player_south || images.player;
         if (!img) return;
 
         ctx.save();
@@ -413,7 +469,6 @@ class EntityRenderer {
         const fw = p.anim.fw, fh = p.anim.fh;
 
         if (p.swinging > 0) {
-            ctx.rotate(p.facing + Math.PI / 2);
             ctx.globalAlpha = 0.8;
             ctx.strokeStyle = p.mods.elemFire ? '#ff6b35' : p.mods.elemIce ? '#4ecdc4' : '#fff';
             ctx.lineWidth = 4;
@@ -451,21 +506,15 @@ class EntityRenderer {
 
         ctx.save();
         ctx.translate(m.x, m.y);
-        ctx.rotate(m.facing);
 
         if (m.flash > 0) {
             ctx.globalAlpha = 0.5;
             m.flash -= 1/60;
         }
 
-        if (m.img === 'boss' || m.img === 'qingyunBoss' || m.img === 'emberBoss' || m.img === 'frostBoss' || m.img === 'netherBoss') {
-            ctx.drawImage(img, 0, 0, img.width, img.height, -m.r * 2, -m.r * 2, m.r * 4, m.r * 4);
-        } else if (img.width > 64) {
-            const frame = Math.floor(gameState.runtime.time * 4) % 4;
-            ctx.drawImage(img, frame * 64, 0, 64, 64, -m.r, -m.r, m.r * 2, m.r * 2);
-        } else {
-            ctx.drawImage(img, -m.r, -m.r, m.r * 2, m.r * 2);
-        }
+        // 怪物素材是单张方形立绘，不是四帧精灵表，直接整张缩放绘制
+        const size = m.draw || m.r * 2;
+        ctx.drawImage(img, -size / 2, -size / 2, size, size);
 
         if (m.boss) {
             ctx.strokeStyle = '#ff6b6b';
@@ -580,7 +629,7 @@ class EffectRenderer {
                 ctx.beginPath();
                 ctx.arc(0, 0, 20 * size, 0, Math.PI * 2);
                 ctx.stroke();
-                break.
+                break;
             case 'chain':
                 ctx.strokeStyle = '#8cecff';
                 ctx.lineWidth = 2;
@@ -669,7 +718,7 @@ class TrapRenderer {
                 ctx.closePath();
                 ctx.stroke();
                 if (active) ctx.fill();
-                break.
+                break;
             case 'miasma':
                 ctx.globalAlpha = 0.3;
                 ctx.fillStyle = trap.color;
@@ -683,7 +732,7 @@ class TrapRenderer {
                 ctx.beginPath();
                 ctx.arc(0, 0, trap.radius, 0, Math.PI * 2);
                 ctx.fill();
-                break.
+                break;
             case 'rune':
                 ctx.beginPath();
                 for (let i = 0; i < 8; i++) {
@@ -692,13 +741,13 @@ class TrapRenderer {
                 }
                 ctx.closePath();
                 ctx.stroke();
-                break.
+                break;
             case 'ice':
                 ctx.strokeStyle = trap.color;
                 ctx.beginPath();
                 ctx.ellipse(0, 0, trap.radius, trap.radius * 0.6, 0, 0, Math.PI * 2);
                 ctx.stroke();
-                break.
+                break;
             case 'altar':
                 ctx.strokeStyle = trap.color;
                 ctx.lineWidth = 3;
@@ -712,7 +761,7 @@ class TrapRenderer {
                 ctx.arc(0, 0, trap.radius * 0.75, 0, Math.PI * 2);
                 ctx.stroke();
                 if (active) ctx.fill();
-                break.
+                break;
         }
 
         if (warning || active) {
@@ -737,7 +786,8 @@ class TrapRenderer {
 
 class UIRenderer {
     static render(ctx, gameState) {
-        if (gameState.runtime.state === 'world') {
+        if (gameState.runtime.state === 'world' ||
+            (gameState.runtime.state === 'dialog' && gameState.runtime.npcPausedState === 'world')) {
             this._drawMinimap(ctx, gameState);
         }
     }

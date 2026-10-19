@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
+    "smoke": "node scripts/smoke.mjs",
     "prepare": "husky install"
   },
   "devDependencies": {

@@ -4011,6 +4011,7 @@ function startRun(startFloor, storyDungeon, dungeonId, skirmish) {
         finishRun: finishRun,
         isRunning: () => S.running,
         getState: () => S,
+        getImages: () => images,
         drawNpcPortrait: drawNpcPortrait,
         pauseForNpcDialog: pauseForNpcDialog,
         resumeFromNpcDialog: resumeFromNpcDialog,

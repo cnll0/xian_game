@@ -31,7 +31,7 @@ class AssetLoader {
                 this.failedAssets.add(key);
                 this.loadingPromises.delete(key);
                 this.loadedAssets.set(key, null);
-                reject(new Error(`Failed to load image: ${src}`));
+                resolve(null);
             };
             img.src = src;
         });

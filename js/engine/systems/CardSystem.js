@@ -9,6 +9,8 @@ class CardSystem {
     showDualCardChoice() {
         const pCards = this._drawRunCards('player', 3);
         const mCards = this._drawRunCards('monster', 2);
+        this._pendingPlayerCards = pCards;
+        this._pendingMonsterCards = mCards;
 
         let html = '<div class="dual-choice-grid">';
         html += '<div class="dual-column"><h4>🎴 修士机缘</h4>';
@@ -21,9 +23,15 @@ class CardSystem {
         document.getElementById('dualCardOverlay').querySelector('.dual-card-box').innerHTML = html;
 
         document.querySelectorAll('.dual-choice-card').forEach(card => {
-            card.addEventListener('click', () => {
+            card.addEventListener('click', (event) => {
+                const branchBtn = event.target.closest('.evolution-choice');
                 const side = card.dataset.side;
                 const cid = card.dataset.cid;
+                if (branchBtn) {
+                    event.stopPropagation();
+                    this._pickDualCard(side, cid, branchBtn.dataset.branch);
+                    return;
+                }
                 this._pickDualCard(side, cid);
             });
         });
@@ -32,14 +40,14 @@ class CardSystem {
     }
 
     _drawRunCards(side, count) {
-        const available = side === 'player'
-            ? window.CARDS.filter(c => this.state.cardRanks.player[c.id] < 3)
-            : window.MONSTER_RUN_CARDS.filter(c => this.state.cardRanks.monster[c.id] < 3);
+        const ranks = side === 'player' ? this.state.cards.player : this.state.cards.monster;
+        const source = side === 'player' ? window.CARDS : window.MONSTER_RUN_CARDS;
+        const available = source.filter(c => (ranks[c.id] || 0) < 3);
 
         return window.drawCardsByTier(available, count, this.state.floor, c =>
-            side === 'player' ? this.state.cardRanks.player[c.id] : this.state.cardRanks.monster[c.id]
+            ranks[c.id] || 0
         ).map(c => Object.assign({}, c, {
-            rank: side === 'player' ? this.state.cardRanks.player[c.id] : this.state.cardRanks.monster[c.id]
+            rank: ranks[c.id] || 0
         }));
     }
 
@@ -78,10 +86,11 @@ class CardSystem {
         const c = cards.find(x => x.id === cardId);
         if (!c) return;
 
-        if (this.state.cardRanks[side][cardId] >= 2 && !branchId) {
+        if ((this.state.cards[side][cardId] || 0) >= 2 && !branchId) {
             window.toast('请选择一条进化路线', 'gold');
             return;
         }
+        if (branchId) c.selectedBranch = branchId;
 
         let lines = side === 'player'
             ? this._applyPlayerCard(c, branchId)
@@ -97,6 +106,8 @@ class CardSystem {
         window.checkAchievements();
         window.saveGame(false);
         window.hideOverlay('dualCardOverlay');
+        this._pendingPlayerCards = [];
+        this._pendingMonsterCards = [];
         this.state.state = 'playing';
     }
 
@@ -106,7 +117,7 @@ class CardSystem {
     _applyPlayerCard(c, branchId) {
         let previousShieldMax = this.state.player.shieldMax || 0;
         const lines = [];
-        const rank = this.state.cardRanks.player[c.id] || 0;
+        const rank = this.state.cards.player[c.id] || 0;
 
         if (c.type === 'cursed') window.G.flags.cursedPicks = (window.G.flags.cursedPicks || 0) + 1;
 
@@ -139,7 +150,7 @@ class CardSystem {
         if (c.type === 'cursed' && rank === 0 && c.curseGift) curseGiftLine = this._applyCurseGift(c);
         if (c.type === 'cursed' && rank === 1) curseUpgradeLines = this._applyCurseDuplicateBonus(c, 'player');
 
-        this.state.cardRanks.player[c.id] = Math.min(3, rank + 1);
+        this.state.cards.player[c.id] = Math.min(3, rank + 1);
 
         let evolutionName = '';
         if (rank >= 2) {
@@ -191,7 +202,7 @@ class CardSystem {
 
     _applyMonsterCard(c, branchId) {
         const lines = [];
-        const rank = this.state.cardRanks.monster[c.id] || 0;
+        const rank = this.state.cards.monster[c.id] || 0;
 
         if (c.type === 'cursed') window.G.flags.cursedPicks = (window.G.flags.cursedPicks || 0) + 1;
 
@@ -219,7 +230,7 @@ class CardSystem {
             for (const k in bonus) this._applyMonsterModifier(k, bonus[k]);
         }
 
-        this.state.cardRanks.monster[c.id] = Math.min(3, rank + 1);
+        this.state.cards.monster[c.id] = Math.min(3, rank + 1);
 
         let evolutionName = '';
         if (rank >= 2) {

@@ -1,22 +1,28 @@
 'use strict';
 
 function $(id) { return document.getElementById(id); }
+
+// 兼容旧引擎的扁平 worldZone 与模块化引擎的 world.zone
+function getWorldZone(state) {
+    return state.worldZone || (state.world && state.world.zone) || 'overworld';
+}
+
+function hasMonsterImage(name) {
+    const runtime = window.gameState && window.gameState.runtime;
+    const images = runtime && runtime.assets && runtime.assets.images;
+    if (images && images[name]) return true;
+    return !!(window.Engine && window.Engine.getImages && window.Engine.getImages()[name]);
+}
 function showOverlay(id) {
     let el = $(id);
     el.classList.add('active');
     el.classList.remove('hidden');
-    // 打开覆盖层时彻底冻结游戏
+    // 打开覆盖层时冻结游戏；只暂停 running，不篡改怪物/玩家的计时器
     if (window.Engine && window.Engine.getState) {
         let state = window.Engine.getState();
         if (state.running) {
             state._wasRunning = true;
             state.running = false;
-            // 立即给玩家无敌并清空威胁
-            if (state.player) {
-                state.player.invuln = 9999;
-            }
-            state.bullets = [];
-            state.monsters.forEach(m => { m.atkCd = 999; });
         }
     }
 }
@@ -24,16 +30,12 @@ function hideOverlay(id) {
     let el = $(id);
     el.classList.remove('active');
     el.classList.add('hidden');
-    // 关闭覆盖层时恢复游戏
+    // 关闭覆盖层时恢复游戏；若还有其它覆盖层保持打开，则继续暂停
     if (window.Engine && window.Engine.getState) {
         let state = window.Engine.getState();
-        if (state._wasRunning) {
+        if (state._wasRunning && !document.querySelector('.overlay.active')) {
             state.running = true;
             state._wasRunning = false;
-            // 恢复玩家正常无敌时间
-            if (state.player) {
-                state.player.invuln = 0;
-            }
         }
     }
 }
@@ -65,7 +67,7 @@ function init() {
 
     $('btnDungeon').addEventListener('click', () => {
         if (Engine.isRunning() && Engine.getState().state !== 'world') { toast('🏰 秘境探索中', 'bad'); return; }
-        if (Engine.getState().worldZone && Engine.getState().worldZone !== 'overworld') Engine.returnToOverworld();
+        if (getWorldZone(Engine.getState()) !== 'overworld') Engine.returnToOverworld();
         else showDungeonSelector();
     });
     $('btnStory').addEventListener('click', () => {
@@ -88,7 +90,18 @@ function init() {
         saveGame(false);
     });
 
-    Engine.init($('gameCanvas'));
+    const initResult = Engine.init($('gameCanvas'));
+    const initPromise = initResult && typeof initResult.then === 'function'
+        ? initResult
+        : Promise.resolve();
+    window.engineReady = initPromise.catch(err => {
+        console.error('引擎初始化失败:', err);
+        if ($('loginHint')) {
+            $('loginHint').textContent = '❌ 游戏资源加载失败，请刷新页面';
+            $('loginHint').style.color = '#b22234';
+        }
+        throw err;
+    });
 
     let lastUser = localStorage.getItem('xian2d_last_user');
     if (lastUser) {
@@ -140,26 +153,27 @@ function newGame(originId) {
 function updateHUD() {
     let nameEl = $('hudName');
     if (nameEl) nameEl.textContent = (G.username || '无名') + ' · ' + window.REALMS[G.realm].name;
-    let inDungeon = Engine.isRunning() && Engine.getState().state !== 'world';
+    let state = Engine.getState();
+    let inWorld = state.state === 'world' || (state.state === 'dialog' && state.npcPausedState === 'world');
+    let inDungeon = !inWorld && Engine.isRunning();
     let hpBar = $('hudHpFill');
     let hpText = $('hudHpText');
-    let curHp = inDungeon && Engine.getState().player ? Engine.getState().player.hp : G.hp;
-    let maxHp = inDungeon && Engine.getState().player ? Engine.getState().player.maxHp : G.maxHp;
+    let curHp = inDungeon && state.player ? state.player.hp : G.hp;
+    let maxHp = inDungeon && state.player ? state.player.maxHp : G.maxHp;
     if (hpBar) hpBar.style.width = Math.max(0, Math.min(100, curHp / maxHp * 100)) + '%';
     if (hpText) hpText.textContent = Math.max(0, Math.round(curHp)) + '/' + maxHp;
     let cultEl = $('hudCult');
     if (cultEl) cultEl.textContent = '🌀' + G.cultivation;
     let statEl = $('hudStats');
-    let runMods = inDungeon && Engine.getState().player ? Engine.getState().player.mods : null;
+    let runMods = inDungeon && state.player ? state.player.mods : null;
     if (statEl) statEl.textContent = '⚔️' + (G.atk + (runMods ? runMods.atk : 0)) +
         ' 💨' + +(G.speed + (runMods ? runMods.speed : 0)).toFixed(1) +
         ' 🎯' + Math.min(80, G.crit + (runMods ? runMods.crit : 0)) + '%';
     let floorEl = $('hudFloor');
     if (floorEl) {
-        let state = Engine.getState();
         let dungeon = window.DUNGEONS.find(item => item.id === state.dungeonId);
-        floorEl.textContent = state.state === 'world'
-            ? (state.worldZone === 'overworld' ? '🗺️ 青云山脉' : '🌫️ ' + (dungeon ? dungeon.name : '秘境'))
+        floorEl.textContent = inWorld
+            ? (getWorldZone(state) === 'overworld' ? '🗺️ 青云山脉' : '🌫️ ' + (dungeon ? dungeon.name : '秘境'))
             : Engine.isRunning() ? ('🏰' + state.floor + '/' + (state.floorCount || window.DUNGEON_FLOORS)) : '🏰秘境';
     }
     renderAchievementBadge();
@@ -312,7 +326,7 @@ function showCodex() {
             let weak = m.ranged ? '远程/近战贴身' : '无明显弱点';
             let drop = '修为 ' + m.cult + ' | 几率掉落强化卡';
             html += '<div class="codex-card monster" data-id="' + k + '">' +
-                '<div class="codex-card-header"><span class="codex-icon">' + (images[m.img] ? '' : '❓') + '</span><span class="codex-name">' + m.name + '</span></div>' +
+                '<div class="codex-card-header"><span class="codex-icon">' + (hasMonsterImage(m.img) ? '' : '❓') + '</span><span class="codex-name">' + m.name + '</span></div>' +
                 '<div class="codex-stats">' +
                 '<span>❤️ ' + m.hp + '</span><span>⚔️ ' + m.atk + '</span><span>💨 ' + m.speed + '</span><span>💰 ' + m.cult + '</span>' +
                 '</div>' +
@@ -327,8 +341,11 @@ function showCodex() {
     function renderPlayerCodex() {
         let html = '<div class="codex-grid">';
         let mods = ['atk','maxHp','speed','range','crit','lifesteal','doubleHit','pierce','knockback','stunChance','elemFire','elemIce','chain','dashStrike','shield','dodge','regen','thorns'];
+        let player = Engine.getState().player;
+        if (!player && window.gameState) player = window.gameState.runtime.player;
+        let playerMods = player && player.mods ? player.mods : {};
         for (let k of mods) {
-            let v = S.player.mods[k];
+            let v = playerMods[k];
             if (!v && v !== true) continue;
             let name = {atk:'攻击',maxHp:'最大生命',speed:'速度',range:'攻击范围',crit:'暴击率',lifesteal:'吸血',
                 doubleHit:'连击',pierce:'穿透',knockback:'击退',stunChance:'眩晕',elemFire:'火属性',elemIce:'冰属性',chain:'连锁',dashStrike:'突刺',shield:'护盾',dodge:'闪避',regen:'回血',thorns:'反伤'}[k];

@@ -115,6 +115,7 @@ function saveGame(showToast) {
 }
 
 async function doLogin() {
+    if (window.engineReady) await window.engineReady;
     let name = $('loginName').value.trim();
     let pass = $('loginPass').value;
     if (!name) { $('loginHint').textContent = '❌ 请输入道号'; $('loginHint').style.color = '#b22234'; return; }
@@ -179,7 +180,8 @@ async function doLogin() {
     toast('✅ 欢迎，' + name + '！', 'gold');
 }
 
-function guestLogin() {
+async function guestLogin() {
+    if (window.engineReady) await window.engineReady;
     G.username = 'guest_' + Math.random().toString(36).slice(2, 8);
     G.guest = true;
     hideOverlay('loginOverlay');

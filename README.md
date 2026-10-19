@@ -24,6 +24,20 @@ python -m http.server 8081
 
 项目无需 npm 安装或构建步骤。直接双击打开 `index.html` 可能会因浏览器对本地文件的限制导致资源加载异常，建议使用本地 HTTP 服务器。
 
+当前入口 `index.html` 使用 `js/engine/` 下的模块化引擎。若模块化版本出现异常，可打开 `legacy.html` 回退到重构前的单文件引擎（`js/engine.js`）。
+
+### 开发与验证
+
+```bash
+npm install          # 仅开发工具需要
+npm run lint
+npm run typecheck
+npm test             # Jest 单元测试
+npm run smoke        # 无额外依赖的浏览器冒烟测试（需本机 Chrome/Edge）
+```
+
+`npm run smoke` 会自动启动临时静态服务器，用无头浏览器完成“游客登录 → 大地图移动 → 进入秘境 → 战斗 → 清层 → 选卡 → 图鉴/存档”的完整链路，并检查世界渲染、HUD 与通关回调。
+
 ## 游戏内容
 
 - **大地图探索与章节剧情**：在可移动视野的大地图中探索地点，与人物交谈并推进主线。
@@ -45,15 +59,30 @@ python -m http.server 8081
 ## 项目结构
 
 ```text
-assets/   图片、精灵图与卡牌图标
-css/      游戏界面样式
+assets/          图片、精灵图与卡牌图标
+css/             游戏界面样式
 js/
-  data.js   境界、地图、秘境、卡牌、功法、NPC 与剧情数据
-  engine.js 实时战斗、地图、渲染和秘境流程
-  main.js   界面初始化、登录与角色状态
-  save.js   浏览器本地存档
-  story.js  剧情、NPC 对话与秘境选择
-index.html 游戏入口
+  data.js        境界、地图、秘境、卡牌、功法、NPC 与剧情数据
+  main.js        界面初始化、登录、HUD 与菜单
+  save.js        浏览器本地存档与本地密码校验
+  story.js       剧情、NPC 对话与秘境选择
+  engine.js      旧版单文件引擎（legacy.html 回退用）
+  engine/
+    Engine.js     引擎生命周期、主循环与静态 API
+    compat.js     模块化引擎的少量兼容辅助函数
+    core/         GameState、EventBus、InputManager
+    systems/      CombatSystem、CardSystem
+    world/        WorldSystem、NPCManager、MapGenerator、Worker 封装
+    render/       WorldRenderer、Renderer
+    utils/        MathUtils、AssetLoader、ObjectPool
+  workers/       地图生成 Web Worker
+  __tests__/     Jest 单元测试
+scripts/
+  smoke.mjs      浏览器冒烟测试脚本
+tests/
+  smoke.html     冒烟测试页面
+index.html       模块化引擎入口
+legacy.html      旧引擎回退入口
 ```
 
 ## 存档与隐私

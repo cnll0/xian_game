@@ -270,31 +270,35 @@ function generateArenaLayout(floor, mapSeed, W, H) {
 
 // 消息处理
 self.onmessage = function(e) {
-    const { type, payload } = e.data;
+    const { type, payload, requestId } = e.data;
 
     switch (type) {
+        case 'PING': {
+            self.postMessage({ type: 'PONG' });
+            break;
+        }
         case 'GENERATE_FLOOR_SCENERY': {
             const { floor, mapSeed } = payload;
             const scenery = generateFloorScenery(floor, mapSeed, W, H, PAD);
-            self.postMessage({ type: 'FLOOR_SCENERY_READY', floor, scenery });
+            self.postMessage({ type: 'FLOOR_SCENERY_READY', requestId, floor, scenery });
             break;
         }
         case 'GENERATE_FLOOR_LANDMARKS': {
             const { floor, mapSeed } = payload;
             const landmarks = generateFloorLandmarks(floor, mapSeed, W, H, PAD);
-            self.postMessage({ type: 'FLOOR_LANDMARKS_READY', floor, landmarks });
+            self.postMessage({ type: 'FLOOR_LANDMARKS_READY', requestId, floor, landmarks });
             break;
         }
         case 'GENERATE_FLOOR_TRAPS': {
             const { floor, mapSeed, time } = payload;
             const traps = generateFloorTraps(floor, mapSeed, time, W, H, PAD);
-            self.postMessage({ type: 'FLOOR_TRAPS_READY', floor, traps });
+            self.postMessage({ type: 'FLOOR_TRAPS_READY', requestId, floor, traps });
             break;
         }
         case 'GENERATE_ARENA_LAYOUT': {
             const { floor, mapSeed } = payload;
             const arena = generateArenaLayout(floor, mapSeed, W, H);
-            self.postMessage({ type: 'ARENA_LAYOUT_READY', floor, arena });
+            self.postMessage({ type: 'ARENA_LAYOUT_READY', requestId, floor, arena });
             break;
         }
         case 'GENERATE_FULL_FLOOR': {
@@ -304,7 +308,7 @@ self.onmessage = function(e) {
             const landmarks = generateFloorLandmarks(floor, mapSeed, W, H, PAD);
             const traps = generateFloorTraps(floor, mapSeed, time, W, H, PAD);
             const arena = generateArenaLayout(floor, mapSeed, W, H);
-            self.postMessage({ type: 'FULL_FLOOR_READY', floor, scenery, landmarks, traps, arena });
+            self.postMessage({ type: 'FULL_FLOOR_READY', requestId, floor, scenery, landmarks, traps, arena });
             break;
         }
     }

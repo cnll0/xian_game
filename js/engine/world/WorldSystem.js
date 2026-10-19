@@ -2,6 +2,8 @@
 
 class WorldSystem {
     constructor(gameState, mapGenerator, eventBus) {
+        this.gameState = gameState;
+        this.runtime = gameState.runtime;
         this.state = gameState.runtime.world;
         this.constants = gameState.constants;
         this.mapGenerator = mapGenerator;
@@ -36,6 +38,9 @@ class WorldSystem {
         this._updateCamera();
         this.state.storyPrompted = null;
         this.state.npcPrompted = null;
+        this.runtime.dungeonId = this.state.zone;
+        this.runtime.running = true;
+        this.runtime.state = 'world';
         return true;
     }
 
@@ -66,6 +71,9 @@ class WorldSystem {
 
         window.toast('🌫️ 踏入' + dungeon.name + '，留意附近游荡的妖兽', 'gold');
         window.saveGame(false);
+        this.runtime.dungeonId = dungeon.id;
+        this.runtime.running = true;
+        this.runtime.state = 'world';
         return true;
     }
 
@@ -80,6 +88,9 @@ class WorldSystem {
         this.state.player.y = 1390;
         this._createWorldDecor();
         this._updateCamera();
+        this.runtime.dungeonId = 'qingyun';
+        this.runtime.running = true;
+        this.runtime.state = 'world';
         window.saveGame(false);
     }
 
@@ -103,6 +114,7 @@ class WorldSystem {
 
     update(dt, input) {
         if (!this.state.player) return;
+        this.state.time = (this.state.time || 0) + dt;
         this.state.player.vx = input.movement.x;
         this.state.player.vy = input.movement.y;
 
@@ -203,7 +215,8 @@ class WorldSystem {
             this.state.npcPrompted = null;
         }
 
-        const location = this.state.story && this.storyLocations[this.state.story.node];
+        const storyNode = window.G && window.G.story && window.G.story.node;
+        const location = storyNode && this.storyLocations[storyNode];
         const nearbyStory = location && Math.hypot(p.x - location.x, p.y - location.y) <= 92 && !npc && !creature;
 
         if (interactBtn) {
@@ -213,9 +226,9 @@ class WorldSystem {
             }
         }
 
-        if (nearbyStory && this.state.storyPrompted !== this.state.story.node && window.onWorldStoryNearby) {
-            this.state.storyPrompted = this.state.story.node;
-            window.onWorldStoryNearby(window.getStoryNode(this.state.story.node));
+        if (nearbyStory && this.state.storyPrompted !== storyNode && window.onWorldStoryNearby) {
+            this.state.storyPrompted = storyNode;
+            window.onWorldStoryNearby(window.getStoryNode(storyNode));
         }
     }
 
@@ -252,9 +265,10 @@ class WorldSystem {
             return true;
         }
 
-        const location = this.state.story && this.storyLocations[this.state.story.node];
+        const storyNode = window.G && window.G.story && window.G.story.node;
+        const location = storyNode && this.storyLocations[storyNode];
         if (location && Math.hypot(p.x - location.x, p.y - location.y) <= 92) {
-            const node = window.getStoryNode(this.state.story.node);
+            const node = window.getStoryNode(storyNode);
             if (node && window.onWorldStoryNearby) {
                 this.state.storyPrompted = node.id;
                 window.onWorldStoryNearby(node);

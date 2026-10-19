@@ -23,26 +23,38 @@ class MapGeneratorWorker {
         if (this.initPromise) return this.initPromise;
 
         this.initPromise = new Promise((resolve, reject) => {
+            let timer = null;
+            const fail = (err) => {
+                if (timer) clearTimeout(timer);
+                this.initPromise = null;
+                reject(err);
+            };
+
             try {
                 this.worker = new Worker('./js/workers/mapGenerator.worker.js');
 
-                this.worker.onmessage = (e) => this._handleMessage(e);
-                this.worker.onerror = (err) => {
-                    console.error('MapGeneratorWorker error:', err);
-                    reject(err);
-                };
+                timer = setTimeout(() => {
+                    fail(new Error('MapGeneratorWorker init timeout'));
+                }, 5000);
 
-                // 简单的就绪检测
-                this.worker.postMessage({ type: 'PING' });
                 this.worker.onmessage = (e) => {
                     if (e.data.type === 'PONG') {
+                        if (timer) clearTimeout(timer);
                         this.initialized = true;
-                        this.worker.onmessage = (e) => this._handleMessage(e);
+                        this.worker.onmessage = (ev) => this._handleMessage(ev);
                         resolve();
+                        return;
                     }
+                    this._handleMessage(e);
                 };
+                this.worker.onerror = (err) => {
+                    console.error('MapGeneratorWorker error:', err);
+                    fail(err);
+                };
+
+                this.worker.postMessage({ type: 'PING' });
             } catch (err) {
-                reject(err);
+                fail(err);
             }
         });
 
@@ -161,6 +173,4 @@ class MapGeneratorWorker {
     }
 }
 
-// 单例实例
 window.MapGeneratorWorker = MapGeneratorWorker;
-window.mapGeneratorWorker = new MapGeneratorWorker();

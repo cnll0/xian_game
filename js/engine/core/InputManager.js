@@ -40,7 +40,11 @@ class InputManager {
     }
 
     _bindEvents() {
+        const isTyping = (target) => target && (
+            target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+
         window.addEventListener('keydown', (e) => {
+            if (isTyping(e.target)) return;
             this.keys[e.code] = true;
             if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
                 e.preventDefault();
@@ -54,6 +58,7 @@ class InputManager {
         });
 
         window.addEventListener('keyup', (e) => {
+            if (isTyping(e.target)) return;
             this.keys[e.code] = false;
             if (e.code === 'KeyJ' || e.code === 'Space' || e.code === 'KeyZ') {
                 this.attackPressed = false;
@@ -93,7 +98,6 @@ class InputManager {
         if (interactBtn) {
             interactBtn.addEventListener('click', () => {
                 this.interactPressed = true;
-                setTimeout(() => this.interactPressed = false, 0);
             });
         }
 
@@ -153,7 +157,6 @@ class InputManager {
                 e.preventDefault();
                 if (document.querySelector('.overlay.active')) return;
                 this.attackPressed = true;
-                setTimeout(() => this.attackPressed = false, 0);
             };
             atkBtn.addEventListener('touchstart', fire, { passive: false });
             atkBtn.addEventListener('mousedown', fire);

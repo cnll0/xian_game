@@ -154,7 +154,9 @@ class Engine {
         window.addEventListener('resize', () => this._fitCanvas());
         this._fitCanvas();
 
-        window.Engine = this;
+        // 不要覆盖 window.Engine 类，main.js/story.js 仍通过静态 API 调用
+        Engine.instance = this;
+        window.mapGeneratorWorker = this.mapGeneratorWorker;
     }
 
     async _loadAssets() {
@@ -192,12 +194,13 @@ class Engine {
     }
 
     _setupRenderLayers() {
-        this.renderer.addLayer('floor', window.FloorRenderer.render, 0);
-        this.renderer.addLayer('scenery', window.SceneryRenderer.render, 10);
-        this.renderer.addLayer('entities', window.EntityRenderer.render, 20);
-        this.renderer.addLayer('effects', window.EffectRenderer.render, 30);
-        this.renderer.addLayer('traps', window.TrapRenderer.render, 40);
-        this.renderer.addLayer('ui', window.UIRenderer.render, 100);
+        // 静态类方法必须绑定 this，否则层函数里的 this._drawXxx 是 undefined
+        this.renderer.addLayer('floor', (ctx, gs, input, camera) => window.FloorRenderer.render(ctx, gs), 0);
+        this.renderer.addLayer('scenery', (ctx, gs, input, camera) => window.SceneryRenderer.render(ctx, gs), 10);
+        this.renderer.addLayer('entities', (ctx, gs, input, camera) => window.EntityRenderer.render(ctx, gs), 20);
+        this.renderer.addLayer('effects', (ctx, gs, input, camera) => window.EffectRenderer.render(ctx, gs), 30);
+        this.renderer.addLayer('traps', (ctx, gs, input, camera) => window.TrapRenderer.render(ctx, gs), 40);
+        this.renderer.addLayer('ui', (ctx, gs, input, camera) => window.UIRenderer.render(ctx, gs), 100);
     }
 
     _fitCanvas() {
@@ -219,18 +222,23 @@ class Engine {
 
     _startRun(startFloor, storyDungeon, dungeonId, skirmish) {
         this.combatSystem.startRun(startFloor, storyDungeon, dungeonId, skirmish);
+        this.start();
     }
 
     _startWorld(resetPosition) {
         this.worldSystem.startWorld(resetPosition);
+        this.start();
     }
 
     _startDungeonWorld(dungeonId) {
-        return this.worldSystem.startDungeonWorld(dungeonId);
+        const started = this.worldSystem.startDungeonWorld(dungeonId);
+        if (started) this.start();
+        return started;
     }
 
     _returnToOverworld() {
         this.worldSystem.returnToOverworld();
+        this.start();
     }
 
     _interactStory() {
@@ -266,7 +274,7 @@ class Engine {
             const floor = this.gameState.runtime.pendingFloorClear;
             this.gameState.runtime.pendingFloorClear = null;
             if (this.gameState.runtime.floorNpc) this.gameState.runtime.floorNpc = null;
-            window.onFloorClear(floor);
+            if (typeof window.onDungeonFloorClear === 'function') window.onDungeonFloorClear(floor);
         }
     }
 
@@ -282,38 +290,38 @@ class Engine {
             let amount = Math.round(player.maxHp * effect.amount);
             let restored = Math.min(amount, player.maxHp - player.hp);
             player.hp += restored;
-            result = '???? ' + restored;
+            result = '恢复 +' + restored;
             if (effect.type === 'healCult') {
                 window.gainCultivation(effect.cult);
-                result += '???+' + effect.cult;
+                result += '，修为+' + effect.cult;
             }
         } else if (effect.type === 'attack') {
             player.mods.atk += effect.amount;
-            result = '??????+' + effect.amount;
+            result = '攻击提升 +' + effect.amount;
             this.gameState.runtime.effects.push({ type: 'evolution', x: player.x, y: player.y, color: '#ffd76a', t: 0, life: 0.8 });
         } else if (effect.type === 'shield') {
             let amount = Math.round(player.maxHp * effect.amount);
             player.mods.shield = Math.max(1, player.mods.shield || 0);
             player.shieldMax = Math.max(player.shieldMax || 0, amount);
             player.shield = Math.min(player.maxHp, (player.shield || 0) + amount);
-            result = '???? ' + amount;
+            result = '护盾 +' + amount;
             this.gameState.runtime.effects.push({ type: 'element', element: 'shield', x: player.x, y: player.y, t: 0, life: 0.65 });
         } else if (effect.type === 'cult') {
             window.gainCultivation(effect.amount);
-            result = '??+' + effect.amount;
+            result = '修为+' + effect.amount;
         } else if (effect.type === 'speed') {
             player.mods.speed += effect.amount;
-            result = '??????+' + effect.amount;
+            result = '速度提升 +' + effect.amount;
         } else if (effect.type === 'bloodPrice') {
             let cost = Math.min(Math.max(0, player.hp - 1), Math.ceil(player.hp * effect.hp));
             player.hp -= cost;
             player.mods.atk += effect.attack;
-            result = '???? ' + cost + '???????+' + effect.attack;
+            result = '消耗生命 ' + cost + '，攻击提升 +' + effect.attack;
         } else if (effect.type === 'riskCult') {
             window.gainCultivation(effect.amount);
             this.combatSystem._applyMonsterModifier('atkMul', 1.2);
             for (let monster of this.gameState.runtime.monsters) monster.atk = Math.ceil(monster.atk * 1.2);
-            result = '??+' + effect.amount + '???????20%????????';
+            result = '修为+' + effect.amount + '，但妖魔攻击提升20%';
         } else {
             throw new Error('Unknown dungeon NPC effect: ' + effect.type);
         }
@@ -323,7 +331,7 @@ class Engine {
                 (window.G.npcRelations[encounter.npc.id] || 0) + choice.favor, -100, 100);
         }
         window.floatText(player.x, player.y - 40, result, '#ffe27a');
-        window.toast(encounter.npc.name + ' � ' + result, 'gold');
+        window.toast(encounter.npc.name + '：' + result, 'gold');
         this.gameState.runtime.floorNpc = null;
         window.updateHUD();
         window.saveGame(false);
@@ -414,19 +422,19 @@ class Engine {
                     lines.push(this._formatEffectLine(k, v));
                 }
             }
-            window.floatText(window.G.player?.x || 480, window.G.player?.y || 270 - 45, '? ??�' + branch.name, '#ffe27a');
+            window.floatText(480, 270 - 45, '✦ 进化 · ' + branch.name, '#ffe27a');
             this.gameState.runtime.effects.push({ type: 'evolution', x: 480, y: 270, color: card.type === 'monster' ? '#ff687d' : '#ffd76a', t: 0, life: 0.8 });
         }
 
         if (card.type === 'cursed') {
-            window.toast('?? ??�' + window.CARD_CURSE_TIER_LABELS[card.curseTier] + '?' + card.name +
-                (evolutionName ? ' ????' + evolutionName + '?' : ' � ' + this._cardRankLabel(rank + 1)) +
-                (curseGiftLine ? '??????' + curseGiftLine : '') +
-                (curseUpgradeLines.length ? '??????' + curseUpgradeLines.join('?') : ''), 'bad');
+            window.toast('💀 诅咒·' + window.CARD_CURSE_TIER_LABELS[card.curseTier] + '：' + card.name +
+                (evolutionName ? ' 进化为「' + evolutionName + '」' : ' · ' + this._cardRankLabel(rank + 1)) +
+                (curseGiftLine ? '；特殊机缘：' + curseGiftLine : '') +
+                (curseUpgradeLines.length ? '；进阶效果：' + curseUpgradeLines.join('、') : ''), 'bad');
         } else if (evolutionName) {
-            window.toast('? ' + card.name + ' ????' + evolutionName + '?', 'gold');
+            window.toast('✦ ' + card.name + ' 进化为「' + evolutionName + '」', 'gold');
         } else {
-            window.toast('? ' + card.name + ' � ' + this._cardRankLabel(rank + 1), 'good');
+            window.toast('✨ ' + card.name + ' · ' + this._cardRankLabel(rank + 1), 'good');
         }
 
         window.updateHUD();
@@ -435,12 +443,12 @@ class Engine {
     }
 
     _formatEffectLine(key, value) {
-        const label = { atk: '??', maxHp: '????', speed: '??', range: '????', crit: '???', lifesteal: '??', hp: '????', cult: '??' }[key] || key;
+        const label = { atk: '攻击', maxHp: '最大生命', speed: '速度', range: '范围', crit: '暴击', lifesteal: '吸血', hp: '当前生命', cult: '修为' }[key] || key;
         return label + (value > 0 ? '+' : '') + value;
     }
 
     _cardRankLabel(rank) {
-        return rank === 1 ? '??' : rank === 2 ? '?? 2/3' : '?? 3/3';
+        return rank === 1 ? '初获' : rank === 2 ? '进阶 2/3' : '进化 3/3';
     }
 
     _applyCurseGift(card) {
@@ -450,11 +458,11 @@ class Engine {
             if (typeof value === 'boolean') window.G[key] = value;
             else window.G[key] = (window.G[key] || 0) + value;
         }
-        if (card.curseGift.curseSoulHarvest) return '?????????' + Math.round(card.curseGift.curseSoulHarvest * 100) + '%';
-        if (card.curseGift.curseFrenzy) return '???????' + Math.round(card.curseGift.curseFrenzy * 100) + '%???3.5?';
+        if (card.curseGift.curseSoulHarvest) return '击杀回复生命上限的' + Math.round(card.curseGift.curseSoulHarvest * 100) + '%';
+        if (card.curseGift.curseFrenzy) return '击杀后攻击提升' + Math.round(card.curseGift.curseFrenzy * 100) + '%，持续3.5秒';
         if (card.curseGift.curseLastStand) {
             const survival = 30 + Math.round((window.G.curseLastStandHp || 0) * 100);
-            return '???????????' + survival + '%????';
+            return '每层首次受到致命伤时以' + survival + '%生命存活';
         }
         throw new Error('Unknown unique curse gift: ' + card.id);
     }
@@ -493,6 +501,7 @@ class Engine {
 
         const input = {
             movement: this.inputManager.getMovementVector(),
+            mouse: this.inputManager.mouse,
             attackPressed: this.inputManager.consumeAttack(),
             interactPressed: this.inputManager.consumeInteract()
         };
@@ -506,12 +515,27 @@ class Engine {
             } else if (state === 'playing' || state === 'clear') {
                 this.combatSystem.update(dt);
             }
-            // loading???????????????
+            this._hudTimer = (this._hudTimer || 0) + dt;
+            if (this._hudTimer >= 0.1) {
+                this._hudTimer = 0;
+                window.updateHUD();
+            }
         }
 
-        // ??
+        if (input.interactPressed && this.gameState.runtime.running && state === 'world') {
+            this.worldSystem.tryInteract();
+        }
+
+        const worldScene = state === 'world' ||
+            (state === 'dialog' && this.gameState.runtime.npcPausedState === 'world');
+        const worldHint = document.getElementById('worldHint');
+        if (worldHint) worldHint.style.display = worldScene ? 'block' : 'none';
+
         if (state === 'loading') {
             this._drawLoadingScreen();
+        } else if (worldScene) {
+            window.WorldRenderer.render(this.ctx, this.gameState);
+            window.UIRenderer.render(this.ctx, this.gameState);
         } else {
             this.renderer.render(this.gameState, input);
         }
@@ -555,23 +579,24 @@ class Engine {
         ctx.font = 'bold 28px "Microsoft YaHei", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('????2D', 0, -60);
+        ctx.fillText('修仙传说2D', 0, -60);
 
         // ????
         ctx.font = '16px "Microsoft YaHei", sans-serif';
         ctx.fillStyle = '#aaa';
         const dots = '.'.repeat(Math.floor(time * 2) % 4);
-        ctx.fillText('??????' + dots, 0, 0);
+        ctx.fillText('正在生成秘境' + dots, 0, 0);
 
         // ????
         ctx.font = '12px "Microsoft YaHei", sans-serif';
         ctx.fillStyle = '#666';
-        ctx.fillText('???????????????', 0, 60);
+        ctx.fillText('正在铺开地图，请稍候', 0, 60);
 
         ctx.restore();
     }
 
     start() {
+        if (this.raf) return;
         this.lastTs = 0;
         this.raf = requestAnimationFrame(this.loop.bind(this));
     }

@@ -9,6 +9,9 @@ class NPCManager {
 
     showDialog(npc, line, hideChoices = false) {
         this.currentNPC = npc;
+        if (window.Engine && typeof window.Engine.pauseForNpcDialog === 'function') {
+            window.Engine.pauseForNpcDialog();
+        }
         this.eventBus.emit('pauseForDialog');
 
         const score = this.getRelation(npc);
@@ -33,7 +36,7 @@ class NPCManager {
         options.replaceChildren();
 
         if (!hideChoices) {
-            npc.choices.forEach((choice, index) => {
+            (npc.choices || []).forEach((choice, index) => {
                 const btn = document.createElement('button');
                 btn.type = 'button';
                 btn.className = 'option-btn';
@@ -49,9 +52,12 @@ class NPCManager {
 
     chooseOption(npc, choice, index) {
         if (npc.dungeonEncounter) {
+            const encounter = window.gameState && window.gameState.runtime.floorNpc;
+            if (encounter) encounter.used = true;
             const result = window.Engine.resolveDungeonNpcEncounter(choice);
             // 秘境NPC遭遇：显示结果后直接恢复游戏，不再弹二次对话框
             window.toast(npc.name + ' · ' + result, 'gold');
+            window.hideOverlay('npcOverlay');
             window.Engine.resumeFromNpcDialog();
             return;
         }
