@@ -13,12 +13,14 @@ function initCompatibilityLayer() {
     };
 
     window.gainCultivation = function(amount) {
+        const oldRealm = window.G.realm;
         window.G.cultivation += amount;
         while (window.G.realm < window.REALMS.length - 1 &&
             window.G.cultivation >= window.REALMS[window.G.realm + 1].cult) {
             window.G.realm++;
             window.toast('🎉 境界突破：' + window.REALMS[window.G.realm].name, 'gold');
         }
+        if (window.G.realm > oldRealm && window.audioManager) window.audioManager.levelUp();
         window.updateHUD();
     };
 

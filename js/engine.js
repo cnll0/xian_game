@@ -63,18 +63,18 @@ const Engine = (function () {
             player_northwest: 'assets/player/player_northwest.png',
             player_southwest: 'assets/player/player_southwest.png',
             npcSprites: 'assets/npc-sprites.svg',
-            wolf: 'assets/wolf.png',
-            brute: 'assets/brute.png',
-            boss: 'assets/boss.png',
-            spider: 'assets/spider.png',
-            skeleton: 'assets/skeleton.png',
-            bat: 'assets/bat.png',
-            elite: 'assets/elite.png',
-            chest: 'assets/chest.png',
-            portal: 'assets/portal.png',
-            pill: 'assets/pill.png',
-            sword: 'assets/sword.png',
-            floor: 'assets/floor.jpg'
+            wolf: 'assets/wolf.webp',
+            brute: 'assets/brute.webp',
+            boss: 'assets/boss.webp',
+            spider: 'assets/spider.webp',
+            skeleton: 'assets/skeleton.webp',
+            bat: 'assets/bat.webp',
+            elite: 'assets/elite.webp',
+            chest: 'assets/chest.webp',
+            portal: 'assets/portal.webp',
+            pill: 'assets/pill.webp',
+            sword: 'assets/sword.webp',
+            floor: 'assets/floor.webp'
         };
         for (let k in list) {
             let img = new Image();

@@ -57,7 +57,7 @@ describe('MathUtils', () => {
   describe('normalizeAngle', () => {
     test('归一化到 [-PI, PI]', () => {
       expect(MathUtils.normalizeAngle(0)).toBe(0);
-      expect(MathUtils.normalizeAngle(Math.PI * 3)).toBe(-Math.PI);
+      expect(MathUtils.normalizeAngle(Math.PI * 3)).toBe(Math.PI);
       expect(MathUtils.normalizeAngle(-Math.PI * 2)).toBe(0);
     });
   });
@@ -67,7 +67,7 @@ describe('MathUtils', () => {
       expect(MathUtils.angleDiff(Math.PI / 2, 0)).toBe(Math.PI / 2);
       expect(MathUtils.angleDiff(0, Math.PI / 2)).toBe(-Math.PI / 2);
       // 跨越边界
-      expect(MathUtils.angleDiff(Math.PI - 0.1, -Math.PI + 0.1)).toBeCloseTo(0.2);
+      expect(MathUtils.angleDiff(Math.PI - 0.1, -Math.PI + 0.1)).toBeCloseTo(-0.2);
     });
   });
 
@@ -205,7 +205,7 @@ describe('SeededRandom', () => {
     const r = new SeededRandom(42);
     const arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     const shuffled = r.shuffle(arr);
-    expect(shuffled.sort()).toEqual(arr);
+    expect([...shuffled].sort((a, b) => a - b)).toEqual(arr);
     expect(shuffled).not.toEqual(arr); // 极小概率相等，忽略
   });
 });

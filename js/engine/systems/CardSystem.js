@@ -7,112 +7,173 @@ class CardSystem {
     }
 
     showDualCardChoice() {
-        const pCards = this._drawRunCards('player', 3);
-        const mCards = this._drawRunCards('monster', 2);
-        this._pendingPlayerCards = pCards;
-        this._pendingMonsterCards = mCards;
+        this._pendingPlayerCards = this._drawCards(window.PLAYER_CARDS || [], 3, 'player');
+        this._pendingMonsterCards = this._drawCards(
+            (window.MONSTER_CARDS || []).filter(c => c.type !== 'cursed'), 3, 'monster');
+        this._pendingCurseCards = (window.MONSTER_CARDS || [])
+            .filter(c => c.type === 'cursed')
+            .map(c => Object.assign({}, c, {
+                rank: this.state.cards.monster[c.id] || 0,
+                selected: false,
+                selectedBranch: null
+            }));
+        this.state.state = 'choosing';
+        this._renderDualUI();
+    }
 
-        let html = '<div class="dual-choice-grid">';
-        html += '<div class="dual-column"><h4>🎴 修士机缘</h4>';
-        pCards.forEach(c => { html += this._cardHTML(c, 'player'); });
+    _drawCards(source, count, side) {
+        const ranks = this.state.cards[side];
+        const available = source.filter(c => (ranks[c.id] || 0) < 3);
+        return window.drawCardsByTier(available, count, this.state.floor, c => ranks[c.id] || 0)
+            .map(c => Object.assign({}, c, {
+                rank: ranks[c.id] || 0,
+                selected: false,
+                selectedBranch: null
+            }));
+    }
+
+    _renderDualUI() {
+        const columns = [
+            { side: 'player', id: 'playerCardChoices', title: '✨ 玩家强化', cards: this._pendingPlayerCards },
+            { side: 'curse', id: 'curseCardChoices', title: '💀 诅咒机缘', cards: this._pendingCurseCards },
+            { side: 'monster', id: 'monsterCardChoices', title: '👿 妖魔强化', cards: this._pendingMonsterCards }
+        ];
+
+        let html = '<h2>🎴 第' + this.state.floor + '层 · 玩家与妖魔选择数量需相同，诅咒可选</h2>';
+        html += '<div class="dual-cards">';
+        for (const column of columns) {
+            html += '<div class="card-column"><h3>' + column.title + '</h3>';
+            html += '<div class="card-choices" id="' + column.id + '">';
+            for (const card of column.cards) html += this._cardHTML(card, column.side);
+            html += '</div></div>';
+        }
         html += '</div>';
-        html += '<div class="dual-column"><h4>👿 妖祸契约</h4>';
-        mCards.forEach(c => { html += this._cardHTML(c, 'monster'); });
-        html += '</div></div>';
+        html += '<button class="btn-primary" id="confirmDualBtn" disabled>确认 (玩家 0 / 妖魔 0)</button>';
 
-        document.getElementById('dualCardOverlay').querySelector('.dual-card-box').innerHTML = html;
+        const overlay = document.getElementById('dualCardOverlay');
+        const content = overlay.querySelector('.overlay-content') || overlay.querySelector('.dual-card-box');
+        content.innerHTML = html;
 
-        document.querySelectorAll('.dual-choice-card').forEach(card => {
-            card.addEventListener('click', (event) => {
-                const branchBtn = event.target.closest('.evolution-choice');
-                const side = card.dataset.side;
-                const cid = card.dataset.cid;
-                if (branchBtn) {
+        for (const column of columns) {
+            const container = document.getElementById(column.id);
+            if (!container) continue;
+            container.addEventListener('click', event => {
+                const branch = event.target.closest('.evolution-choice');
+                if (branch) {
                     event.stopPropagation();
-                    this._pickDualCard(side, cid, branchBtn.dataset.branch);
+                    const cardEl = branch.closest('.choice-card');
+                    this._toggleCard(column.side, cardEl.dataset.id, branch.dataset.branch);
                     return;
                 }
-                this._pickDualCard(side, cid);
+                const cardEl = event.target.closest('.choice-card');
+                if (cardEl) this._toggleCard(column.side, cardEl.dataset.id);
             });
-        });
-
+        }
+        document.getElementById('confirmDualBtn').addEventListener('click', () => this._confirmDualChoice());
+        this._updateConfirmBtn();
         window.showOverlay('dualCardOverlay');
     }
 
-    _drawRunCards(side, count) {
-        const ranks = side === 'player' ? this.state.cards.player : this.state.cards.monster;
-        const source = side === 'player' ? window.CARDS : window.MONSTER_RUN_CARDS;
-        const available = source.filter(c => (ranks[c.id] || 0) < 3);
-
-        return window.drawCardsByTier(available, count, this.state.floor, c =>
-            ranks[c.id] || 0
-        ).map(c => Object.assign({}, c, {
-            rank: ranks[c.id] || 0
-        }));
-    }
-
     _cardHTML(card, side) {
-        const rankLabel = card.rank === 0 ? '初获' : card.rank === 1 ? '进阶 2/3' : '进化 3/3';
-        const branches = card.rank >= 2 ? window.getCardEvolutions(card) : [];
-        const rarityClass = card.rarity || 'common';
-        const typeClass = card.type || 'pure';
+        const rank = card.rank || 0;
+        const branches = rank >= 2 ? window.getCardEvolutions(card) : [];
+        const sideClass = side === 'player' ? 'player-card' : side === 'monster' ? 'monster-card' : 'curse-card';
         const curseClass = card.curseTier ? ' curse-' + card.curseTier : '';
+        const selected = card.selected ? ' selected' : '';
 
-        let effLines = '';
-        for (const k in card.effects) {
+        let effects = '';
+        for (const k in card.effects || {}) {
             const v = card.effects[k];
-            const label = { atk: '攻击', maxHp: '生命上限', speed: '速度', range: '范围', lifesteal: '吸血', crit: '暴击', hp: '当前生命', cult: '修为' }[k] || k;
-            effLines += '<div class="effect-line"><span class="stat">' + label + '</span><span class="val ' + (v > 0 ? 'positive' : 'negative') + '">' + (v > 0 ? '+' : '') + v + '</span></div>';
-        }
-        for (const k in card.monsterEffects || {}) {
-            const v = card.monsterEffects[k];
-            const label = { hpMul: '妖魔生命', atkMul: '妖魔攻击', spdMul: '妖魔速度', cntAdd: '妖魔数量', forceElite: '精英妖魔', shield: '妖魔护盾', regen: '妖魔回复', thorns: '妖魔反伤', split: '妖魔分裂', explode: '妖魔自爆', teleport: '妖魔瞬移', summonCd: '召唤间隔' }[k] || k;
-            const value = (k === 'hpMul' || k === 'atkMul' || k === 'spdMul') ? '+' + Math.round((v - 1) * 100) + '%' : typeof v === 'boolean' ? (v ? '开启' : '关闭') : '+' + v;
-            effLines += '<div class="effect-line enemy-effect"><span class="stat">' + label + '</span><span class="val negative">' + value + '</span></div>';
+            const label = {
+                atk: '攻击', maxHp: '生命上限', speed: '速度', range: '范围', crit: '暴击',
+                lifesteal: '吸血', hp: '当前生命', doubleHit: '连击', pierce: '穿透',
+                knockback: '击退', stunChance: '眩晕', elemFire: '火属性', elemIce: '冰属性',
+                chain: '连锁', dashStrike: '突刺', shield: '护盾', shieldCd: '护盾CD',
+                dodge: '闪避', regen: '回复', thorns: '反伤', hpMul: '妖魔生命',
+                atkMul: '妖魔攻击', spdMul: '妖魔速度', cntAdd: '妖魔数量',
+                forceElite: '精英妖魔', split: '妖魔分裂', explode: '妖魔自爆',
+                teleport: '妖魔瞬移', summonCd: '召唤间隔'
+            }[k] || k;
+            const value = typeof v === 'boolean' ? (v ? '开启' : '关闭')
+                : (k === 'hpMul' || k === 'atkMul' || k === 'spdMul') ? '+' + Math.round((v - 1) * 100) + '%'
+                    : (v > 0 ? '+' : '') + v;
+            effects += '<div class="effect-line"><span class="stat">' + label + '</span><span class="val ' +
+                (v > 0 || v === true ? 'positive' : 'negative') + '">' + value + '</span></div>';
         }
 
-        return '<div class="dual-choice-card ' + typeClass + ' ' + rarityClass + curseClass + '" data-side="' + side + '" data-cid="' + card.id + '">' +
+        return '<div class="choice-card ' + sideClass + ' ' + (card.rarity || 'common') + ' ' +
+            (card.type || '') + curseClass + selected + '" data-side="' + side + '" data-id="' + card.id + '">' +
             window.cardArt(card.id) +
-            '<span class="rarity">' + window.getCardDrawTierLabel(card) + '</span>' +
-            '<div class="card-name">' + card.name + '<span class="card-rank">' + rankLabel + '</span></div>' +
+            '<div class="card-name">' + card.name + '<span class="card-rank">' + this._cardRankLabel(rank + 1) + '</span></div>' +
             '<div class="card-desc">' + card.desc + '</div>' +
-            '<div class="card-effects">' + effLines + '</div>' +
-            (branches.length ? '<div class="evolution-choices"><span class="evolution-title">选择进化路线</span>' + branches.map(b => '<button type="button" class="evolution-choice" data-branch="' + b.id + '"><strong>' + b.name + '</strong><span>' + b.desc + '</span></button>').join('') + '</div>' : '') +
-            '</div>';
+            '<div class="card-effects">' + effects + '</div>' +
+            (branches.length ? '<div class="evolution-choices"><span class="evolution-title">选择进化路线</span>' +
+                branches.map(b => '<button type="button" class="evolution-choice" data-branch="' + b.id + '"><strong>' +
+                    b.name + '</strong><span>' + b.desc + '</span></button>').join('') + '</div>' : '') +
+            '<div class="rarity">' + window.getCardDrawTierLabel(card) + '</div></div>';
     }
 
-    _pickDualCard(side, cardId, branchId) {
-        const cards = side === 'player' ? this._pendingPlayerCards : this._pendingMonsterCards;
-        const c = cards.find(x => x.id === cardId);
-        if (!c) return;
-
-        if ((this.state.cards[side][cardId] || 0) >= 2 && !branchId) {
-            window.toast('请选择一条进化路线', 'gold');
-            return;
+    _toggleCard(side, cardId, branchId) {
+        const cards = side === 'player' ? this._pendingPlayerCards
+            : side === 'monster' ? this._pendingMonsterCards : this._pendingCurseCards;
+        const card = cards.find(c => c.id === cardId);
+        if (!card) return;
+        if (branchId) {
+            card.selected = true;
+            card.selectedBranch = branchId;
+        } else {
+            card.selected = !card.selected;
+            if (!card.selected) card.selectedBranch = null;
         }
-        if (branchId) c.selectedBranch = branchId;
+        if (card.selected && cards.filter(c => c.selected).length > 3) {
+            card.selected = false;
+            card.selectedBranch = null;
+            window.toast('每列最多选择 3 张', 'bad');
+        }
+        const el = document.querySelector('.choice-card[data-side="' + side + '"][data-id="' + cardId + '"]');
+        if (el) {
+            el.classList.toggle('selected', card.selected);
+            el.querySelectorAll('.evolution-choice').forEach(button => {
+                button.classList.toggle('active', button.dataset.branch === card.selectedBranch);
+            });
+        }
+        this._updateConfirmBtn();
+    }
 
-        let lines = side === 'player'
-            ? this._applyPlayerCard(c, branchId)
-            : this._applyMonsterCard(c, branchId);
+    _updateConfirmBtn() {
+        const button = document.getElementById('confirmDualBtn');
+        if (!button) return;
+        const pSel = this._pendingPlayerCards.filter(c => c.selected).length;
+        const mSel = this._pendingMonsterCards.filter(c => c.selected).length;
+        const branchReady = this._pendingPlayerCards.concat(this._pendingMonsterCards, this._pendingCurseCards)
+            .every(c => !c.selected || (c.rank || 0) < 2 || !!c.selectedBranch);
+        const ready = pSel === mSel && branchReady;
+        button.disabled = !ready;
+        button.textContent = branchReady
+            ? '确认 (玩家 ' + pSel + ' / 妖魔 ' + mSel + ')'
+            : '请选择进化分支';
+    }
 
-        const branch = branchId && window.getCardEvolutions(c).find(b => b.id === branchId);
-        const rankText = c.rank > 0 && !branchId ? ' · ' + (c.rank === 1 ? '进阶 2/3' : '进化 3/3') : '';
-        const curseGrade = c.type === 'cursed' ? ' · 诅咒·' + window.CARD_CURSE_TIER_LABELS[c.curseTier] : '';
-
-        window.toast((c.emoji || '👿') + ' ' + c.name + (branch ? ' → ' + branch.name : rankText + curseGrade) + '：' + lines.join('，'),
-            c.type === 'cursed' || c.type === 'monster' ? 'bad' : c.type === 'mixed' || branch ? 'gold' : 'good');
-
+    _confirmDualChoice() {
+        const apply = (cards, side) => {
+            for (const card of cards.filter(c => c.selected)) {
+                if (side === 'player') this._applyPlayerCard(card, card.selectedBranch);
+                else this._applyMonsterCard(card, card.selectedBranch);
+            }
+        };
+        apply(this._pendingPlayerCards, 'player');
+        apply(this._pendingMonsterCards, 'monster');
+        apply(this._pendingCurseCards, 'monster');
+        if (window.audioManager) window.audioManager.card();
+        this._pendingPlayerCards = [];
+        this._pendingMonsterCards = [];
+        this._pendingCurseCards = [];
         window.checkAchievements();
         window.saveGame(false);
         window.hideOverlay('dualCardOverlay');
-        this._pendingPlayerCards = [];
-        this._pendingMonsterCards = [];
         this.state.state = 'playing';
+        window.updateHUD();
     }
-
-    _pendingPlayerCards = [];
-    _pendingMonsterCards = [];
 
     _applyPlayerCard(c, branchId) {
         let previousShieldMax = this.state.player.shieldMax || 0;
@@ -287,36 +348,66 @@ class CardSystem {
         throw new Error('Unknown unique curse gift: ' + card.id);
     }
 
-    _applyCurseDuplicateBonus(card, side) {
-        const lines = [];
-        if (card.curseUpgrade) {
-            for (const k in card.curseUpgrade) {
-                const v = card.curseUpgrade[k];
-                if (side === 'player') {
-                    if (typeof v === 'boolean') this.state.player.mods[k] = v;
-                    else this.state.player.mods[k] = (this.state.player.mods[k] || 0) + v;
-                } else {
-                    this._applyMonsterModifier(k, v);
-                }
-                lines.push(this._formatEffectLine(k, v));
+    _applyPlayerModEffects(effects) {
+        for (const k in effects) {
+            const v = effects[k];
+            if (typeof v === 'boolean') this.state.player.mods[k] = v;
+            else if (k === 'hp') this.state.player.hp = Math.max(1, Math.min(this.state.player.maxHp, this.state.player.hp + v));
+            else if (k === 'dashCd' || k === 'shieldCd') {
+                this.state.player.mods[k] = Math.max(1, (this.state.player.mods[k] || 3) + v);
+            } else {
+                this.state.player.mods[k] = (this.state.player.mods[k] || 0) + v;
             }
         }
+    }
+
+    _applyCurseDuplicateBonus(card, side) {
+        const bonus = window.CURSE_DUPLICATE_BONUSES[card.curseTier];
+        if (!bonus) throw new Error('Missing curse duplicate bonus: ' + card.id);
+        const lines = [];
+        if (bonus.playerEffects) {
+            if (side === 'player') this._applyPlayerModEffects(bonus.playerEffects);
+            else lines.push(...this._applyCardEffects(bonus.playerEffects));
+        }
+        if (bonus.monsterEffects && side === 'monster') {
+            for (const k in bonus.monsterEffects) this._applyMonsterModifier(k, bonus.monsterEffects[k]);
+        }
+        if (bonus.curseCost) {
+            if (side === 'player') this._applyPlayerModEffects(bonus.curseCost);
+            else lines.push('进阶代价：' + this._applyCardEffects(bonus.curseCost).join('、'));
+        }
+
+        const tier = card.curseTier;
+        const gift = {};
+        if (card.curseGift.curseSoulHarvest) {
+            gift.curseSoulHarvest = tier === 'minor' ? 0.01 : tier === 'major' ? 0.02 : 0.025;
+        } else if (card.curseGift.curseFrenzy) {
+            gift.curseFrenzy = tier === 'minor' ? 0.04 : tier === 'major' ? 0.06 : 0.08;
+        } else if (card.curseGift.curseLastStand) {
+            gift.curseLastStandHp = 0.05;
+        } else {
+            throw new Error('Unknown curse duplicate gift: ' + card.id);
+        }
+        this._applyCurseGift({ id: card.id, curseGift: gift });
+        lines.push('机缘增强');
         return lines;
     }
 
     _applyCurseEvolution(branch, side) {
         const lines = [];
-        if (branch.curseUpgrade) {
-            for (const k in branch.curseUpgrade) {
-                const v = branch.curseUpgrade[k];
-                if (side === 'player') {
-                    if (typeof v === 'boolean') this.state.player.mods[k] = v;
-                    else this.state.player.mods[k] = (this.state.player.mods[k] || 0) + v;
-                } else {
-                    this._applyMonsterModifier(k, v);
-                }
-                lines.push(this._formatEffectLine(k, v));
-            }
+        if (branch.playerEffects) {
+            if (side === 'player') this._applyPlayerModEffects(branch.playerEffects);
+            else lines.push(...this._applyCardEffects(branch.playerEffects));
+        }
+        if (branch.monsterEffects && side === 'monster') {
+            for (const k in branch.monsterEffects) this._applyMonsterModifier(k, branch.monsterEffects[k]);
+        }
+        if (branch.curseCost) {
+            if (side === 'player') this._applyPlayerModEffects(branch.curseCost);
+            else lines.push('进阶代价：' + this._applyCardEffects(branch.curseCost).join('、'));
+        }
+        if (branch.curseGift) {
+            lines.push('进阶机缘：' + this._applyCurseGift({ id: branch.id, curseGift: branch.curseGift }));
         }
         return lines;
     }

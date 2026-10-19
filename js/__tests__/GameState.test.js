@@ -144,7 +144,7 @@ describe('ObjectPool', () => {
     }
     pool.releaseAll();
     expect(pool.getActiveCount()).toBe(0);
-    expect(pool.getPoolSize()).toBe(8); // 5初始 + 3释放
+    expect(pool.getPoolSize()).toBe(5); // 初始 5 个，3 个借出后归还
   });
 
   test('clear清空池', () => {

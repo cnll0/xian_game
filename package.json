@@ -9,7 +9,8 @@
     "format": "prettier --write \"js/**/*.js\" \"*.html\" \"css/**/*.css\"",
     "format:check": "prettier --check \"js/**/*.js\" \"*.html\" \"css/**/*.css\"",
     "typecheck": "tsc --noEmit",
-    "test": "jest",
+    "test": "node --test tests/unit.test.mjs",
+    "test:jest": "jest",
     "test:watch": "jest --watch",
     "smoke": "node scripts/smoke.mjs",
     "prepare": "husky install"

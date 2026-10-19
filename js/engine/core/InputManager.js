@@ -176,7 +176,7 @@ class InputManager {
         if (this.joystick.active) { mx += this.joystick.dx; my += this.joystick.dy; }
         const len = Math.hypot(mx, my);
         if (len > 1) { mx /= len; my /= len; }
-        return { x: mx, y: my, length: len };
+        return { x: mx, y: my, length: Math.min(1, len) };
     }
 
     /**

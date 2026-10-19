@@ -29,11 +29,12 @@ python -m http.server 8081
 ### 开发与验证
 
 ```bash
-npm install          # 仅开发工具需要
+npm test             # 零依赖单元测试（Node 内置 test runner）
+npm run smoke        # 无额外依赖的浏览器冒烟测试（需本机 Chrome/Edge）
+npm install          # 需要完整 Jest/ESLint/tsc 时再安装
+npm run test:jest    # 可选，完整 Jest 用例
 npm run lint
 npm run typecheck
-npm test             # Jest 单元测试
-npm run smoke        # 无额外依赖的浏览器冒烟测试（需本机 Chrome/Edge）
 ```
 
 `npm run smoke` 会自动启动临时静态服务器，用无头浏览器完成“游客登录 → 大地图移动 → 进入秘境 → 战斗 → 清层 → 选卡 → 图鉴/存档”的完整链路，并检查世界渲染、HUD 与通关回调。
@@ -55,6 +56,7 @@ npm run smoke        # 无额外依赖的浏览器冒烟测试（需本机 Chrom
 | 攻击 | `J`、`Z` 或空格 |
 | 交谈 / 互动 | `E` 或回车 |
 | 移动端 | 使用屏幕摇杆和攻击按钮 |
+| 音效 | 点击 HUD 右侧 🔊 按钮开关 |
 
 ## 项目结构
 
@@ -74,16 +76,21 @@ js/
     systems/      CombatSystem、CardSystem
     world/        WorldSystem、NPCManager、MapGenerator、Worker 封装
     render/       WorldRenderer、Renderer
-    utils/        MathUtils、AssetLoader、ObjectPool
+    utils/        MathUtils、AssetLoader、ObjectPool、AudioManager
   workers/       地图生成 Web Worker
   __tests__/     Jest 单元测试
 scripts/
   smoke.mjs      浏览器冒烟测试脚本
 tests/
+  unit.test.mjs  零依赖单元测试
   smoke.html     冒烟测试页面
 index.html       模块化引擎入口
 legacy.html      旧引擎回退入口
 ```
+
+## 资源与音效
+
+运行时立绘已压缩为 256px WebP，`assets/` 体积从约 9.9MB 降至约 3MB（其中仍保留 `assets/raw/` 源图）。基础攻击、受击、拾取、升级与选卡音效由 WebAudio 实时合成，不依赖外部音频文件。
 
 ## 存档与隐私
 

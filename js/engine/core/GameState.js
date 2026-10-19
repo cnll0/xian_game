@@ -150,7 +150,10 @@ class GameState {
     set(key, value) {
         const keys = key.split('.');
         const lastKey = keys.pop();
-        const target = keys.reduce((obj, k) => obj[k], this.runtime);
+        const target = keys.reduce((obj, k) => {
+            if (!obj[k] || typeof obj[k] !== 'object') obj[k] = {};
+            return obj[k];
+        }, this.runtime);
         target[lastKey] = value;
     }
 
@@ -158,6 +161,15 @@ class GameState {
     resetRuntime() {
         this.runtime.running = false;
         this.runtime.state = 'idle';
+        this.runtime.floor = 1;
+        this.runtime.floorCount = 10;
+        this.runtime.dungeonId = 'qingyun';
+        this.runtime.dungeon = null;
+        this.runtime.time = 0;
+        this.runtime.mapSeed = 1;
+        this.runtime.storyDungeon = false;
+        this.runtime.skirmish = false;
+        this.runtime.noDeathRun = true;
         this.runtime.player = null;
         this.runtime.monsters = [];
         this.runtime.bullets = [];

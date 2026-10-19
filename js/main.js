@@ -64,6 +64,13 @@ function init() {
 
     $('saveBtn').addEventListener('click', () => saveGame(true));
     $('menuBtn').addEventListener('click', () => showOverlay('menuOverlay'));
+    if ($('muteBtn')) {
+        $('muteBtn').textContent = window.audioManager && window.audioManager.muted ? '🔇' : '🔊';
+        $('muteBtn').addEventListener('click', () => {
+            const muted = window.audioManager ? window.audioManager.toggleMute() : false;
+            $('muteBtn').textContent = muted ? '🔇' : '🔊';
+        });
+    }
 
     $('btnDungeon').addEventListener('click', () => {
         if (Engine.isRunning() && Engine.getState().state !== 'world') { toast('🏰 秘境探索中', 'bad'); return; }

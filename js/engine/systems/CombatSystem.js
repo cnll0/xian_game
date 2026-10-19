@@ -205,22 +205,25 @@ class CombatSystem {
                 stunCd: 0,
                 controlEffect: null,
                 type: base.id,
-                img: base.img,
                 draw: base.draw,
                 tint: base.tint || '#a9aa83',
+                elite: !!base.elite,
                 ranged: !!base.ranged,
                 keepDistance: !!base.keepDistance,
                 shootRange: base.shootRange || 0,
                 shootInterval: (base.shootCd || 2.4) * (0.8 + Math.random() * 0.4),
                 shootCd: (base.shootCd || 2.4) * (0.8 + Math.random() * 0.4),
                 healer: !!base.healer,
-                splitOnDeath: !!base.splitOnDeath,
+                splitOnDeath: !!base.splitOnDeath || (this.state.monsterMods.split || 0) > 0,
                 projectileColor: base.projectileColor || '#ffb86b',
                 shield: this.state.monsterMods.shield || 0,
                 regen: this.state.monsterMods.regen || 0,
                 thorns: this.state.monsterMods.thorns || 0,
                 explode: !!this.state.monsterMods.explode,
                 teleport: this.state.monsterMods.teleport || 0,
+                teleportCd: this.state.monsterMods.teleport || 0,
+                summonCd: this.state.monsterMods.summonCd || 0,
+                summonTimer: this.state.monsterMods.summonCd || 0,
                 bossCd: base.boss ? 2 : 0,
                 x: 0, y: 0
             };
@@ -369,6 +372,13 @@ class CombatSystem {
         if (p.mods.regen > 0 && p.hp < p.maxHp) {
             p.hp = Math.min(p.maxHp, p.hp + p.maxHp * p.mods.regen * dt);
         }
+        if (p.shieldCooldown > 0) {
+            p.shieldCooldown = Math.max(0, p.shieldCooldown - dt);
+            if (p.shieldCooldown === 0 && p.shieldMax > 0) {
+                p.shield = p.shieldMax;
+                this.state.effects.push({ type: 'element', element: 'shield', x: p.x, y: p.y, t: 0, life: 0.55 });
+            }
+        }
 
         this._updatePlayerMovement(dt);
         this._updatePlayerAttack(dt);
@@ -404,6 +414,7 @@ class CombatSystem {
             p.dashTime -= dt;
             p.x = MathUtils.clamp(p.x + p.dashVx * dt, this.constants.PAD + p.r, this.constants.W - this.constants.PAD - p.r);
             p.y = MathUtils.clamp(p.y + p.dashVy * dt, this.constants.PAD + p.r, this.constants.H - this.constants.PAD - p.r);
+            this.state.effects.push({ type: 'afterimage', x: p.x, y: p.y, t: 0, life: 0.25 });
         }
         if (p.mods.dashStrike && p.dashCd <= 0 && p.dashTime <= 0) {
             const mouse = window.gameInput && window.gameInput.mouse;
@@ -415,6 +426,7 @@ class CombatSystem {
             p.dashTime = 0.15;
             p.dashCd = Math.max(1.5, p.mods.dashCd || 3);
             p.dashHitSet = new Set();
+            this.state.effects.push({ type: 'dash', x: p.x, y: p.y, x2: p.x + p.dashVx * 0.15, y2: p.y + p.dashVy * 0.15, t: 0, life: 0.3 });
         }
         if (p.mods.dashStrike && p.dashTime > 0) {
             for (const m of this.state.monsters) {
@@ -439,6 +451,7 @@ class CombatSystem {
     }
 
     tryAttack(isAuto = false) {
+        if (window.audioManager) window.audioManager.attack();
         const p = this.state.player;
         const atkSpeed = p.attackSlowTime > 0 ? 0.5 : 1;
         p.atkCd = (0.6 / atkSpeed) * (p.mods.dashStrike ? 0.8 : 1);
@@ -453,7 +466,7 @@ class CombatSystem {
         this._spawnSlash(p.x, p.y, p.facing, range, finalDmg, isCrit, p.mods);
 
         if (p.mods.doubleHit) {
-            setTimeout(() => this._spawnSlash(p.x, p.y, p.facing, range, finalDmg, isCrit, p.mods), 80);
+            setTimeout(() => this._spawnSlash(p.x, p.y, p.facing, range, Math.round(finalDmg * 0.7), isCrit, p.mods), 80);
         }
     }
 
@@ -473,6 +486,10 @@ class CombatSystem {
             stunDur: mods.stunDur || 0,
             thorns: mods.thorns || 0
         };
+        const color = mods.evoBlade ? '#ffd86b'
+            : mods.elemIce ? '#8beaff'
+                : mods.elemFire ? '#ff8a4c' : '#7df9ff';
+        this.state.effects.push({ type: 'slash', x, y, a: angle, r: range, color, t: 0, life: 0.18 });
         this.state.bullets.push(slash);
     }
 
@@ -512,9 +529,24 @@ class CombatSystem {
             m.shootCd = Math.max(0, (m.shootCd || 0) - dt);
             m.bossCd = Math.max(0, (m.bossCd || 0) - dt);
             m.healCd = Math.max(0, (m.healCd || 0) - dt);
+            m.teleportCd = Math.max(0, (m.teleportCd || 0) - dt);
+            m.summonTimer = Math.max(0, (m.summonTimer || 0) - dt);
 
             const dx = p.x - m.x, dy = p.y - m.y;
             const dist = Math.hypot(dx, dy) || 1;
+
+            if (m.teleport > 0 && m.teleportCd <= 0 && dist > 110) {
+                const angle = Math.random() * Math.PI * 2;
+                m.x = MathUtils.clamp(p.x + Math.cos(angle) * 160, this.constants.PAD + m.r, this.constants.W - this.constants.PAD - m.r);
+                m.y = MathUtils.clamp(p.y + Math.sin(angle) * 160, this.constants.PAD + m.r, this.constants.H - this.constants.PAD - m.r);
+                m.teleportCd = Math.max(2, m.teleport);
+                this.state.effects.push({ type: 'evolution', x: m.x, y: m.y, color: '#b388e8', t: 0, life: 0.5 });
+            }
+
+            if (m.summonCd > 0 && m.summonTimer <= 0) {
+                m.summonTimer = m.summonCd;
+                this._summonMinion(m);
+            }
 
             if (m.healer && m.healCd <= 0) {
                 m.healCd = 3.2;
@@ -593,9 +625,43 @@ class CombatSystem {
     }
 
     _monsterAttack(monster, player) {
+        if (window.audioManager) window.audioManager.hurt();
         const dmg = monster.atk;
         this.hurtPlayer(dmg);
         window.floatText(player.x, player.y - 24, '-' + dmg, '#ff6b6b');
+        if (player.mods.thorns > 0) {
+            const reflect = Math.max(1, Math.round(dmg * player.mods.thorns));
+            this.damageMonster(monster, { dmg: reflect });
+            window.floatText(monster.x, monster.y - monster.r, '反伤 -' + reflect, '#ffaa66');
+            this.state.effects.push({ type: 'hit', x: monster.x, y: monster.y, color: '#89e5a0', t: 0, life: 0.28 });
+            this.state.effects.push({ type: 'element', element: 'thorns', x: monster.x, y: monster.y, t: 0, life: 0.4 });
+        }
+    }
+
+    _summonMinion(source) {
+        const dungeon = this.state.dungeon || window.DUNGEONS[0];
+        const pool = dungeon && dungeon.floorPool ? dungeon.floorPool.flat() : ['wolf'];
+        const id = pool[Math.floor(Math.random() * pool.length)] || 'wolf';
+        const base = window.MONSTERS[id];
+        if (!base) return;
+        const hpMul = (dungeon ? dungeon.hpScale : 1) * (1 + (this.state.floor - 1) * 0.2);
+        const atkMul = (dungeon ? dungeon.atkScale : 1) * (1 + (this.state.floor - 1) * 0.12);
+        this.state.monsters.push({
+            id: base.id, name: base.name, img: base.img, boss: false, elite: false,
+            hp: Math.max(1, Math.round(base.hp * hpMul * 0.6)),
+            maxHp: Math.max(1, Math.round(base.hp * hpMul * 0.6)),
+            atk: Math.max(1, Math.round(base.atk * atkMul * 0.7)),
+            speed: base.speed, r: base.r, facing: 0, atkCd: 0.8, stunCd: 0,
+            controlEffect: null, type: base.id, draw: base.draw,
+            tint: base.tint || '#a9aa83', x: source.x, y: source.y,
+            ranged: !!base.ranged, keepDistance: !!base.keepDistance,
+            shootRange: base.shootRange || 0, shootCd: 1.5,
+            projectileColor: base.projectileColor || '#ffb86b',
+            shield: 0, regen: 0, thorns: 0, explode: false,
+            splitOnDeath: false, splitChild: true, teleport: 0, summonCd: 0
+        });
+        this.state.effects.push({ type: 'evolution', x: source.x, y: source.y, color: '#d58bff', t: 0, life: 0.7 });
+        window.floatText(source.x, source.y - source.r, '召唤妖仆', '#d58bff');
     }
 
     _updateBullets(dt) {
@@ -655,6 +721,10 @@ class CombatSystem {
 
         window.floatText(monster.x, monster.y - monster.r, bullet.isCrit ? '暴击 -' + actualDmg : '-' + actualDmg,
             bullet.isCrit ? '#ffd700' : '#ff6b6b');
+        this.state.effects.push({
+            type: 'hit', x: monster.x, y: monster.y,
+            color: bullet.isCrit ? '#ffd700' : '#a8edff', t: 0, life: 0.3
+        });
 
         if (monster.thorns > 0 && actualDmg > 0) {
             this.hurtPlayer(Math.max(1, Math.round(actualDmg * monster.thorns)));
@@ -670,19 +740,23 @@ class CombatSystem {
             this.state.effects.push({ type: 'element', element: 'ice', x: monster.x, y: monster.y, t: 0, life: 0.5 });
         }
         if (bullet.knockback > 0) {
+            const fromX = monster.x, fromY = monster.y;
             const angle = Math.atan2(monster.y - bullet.y, monster.x - bullet.x);
             monster.x = MathUtils.clamp(monster.x + Math.cos(angle) * bullet.knockback, this.constants.PAD + monster.r, this.constants.W - this.constants.PAD - monster.r);
             monster.y = MathUtils.clamp(monster.y + Math.sin(angle) * bullet.knockback, this.constants.PAD + monster.r, this.constants.H - this.constants.PAD - monster.r);
+            this.state.effects.push({ type: 'knockback', x: fromX, y: fromY, x2: monster.x, y2: monster.y, t: 0, life: 0.22 });
         }
         if (bullet.stunChance && Math.random() * 100 < bullet.stunChance) {
             monster.stunCd = Math.max(monster.stunCd || 0, bullet.stunDur || 1);
             monster.controlEffect = 'stun';
+            this.state.effects.push({ type: 'element', element: 'stun', x: monster.x, y: monster.y, t: 0, life: 0.7 });
         }
 
         if (bullet.lifesteal > 0) {
             const heal = Math.min(bullet.lifesteal, this.state.player.maxHp - this.state.player.hp);
             this.state.player.hp += heal;
             window.floatText(this.state.player.x, this.state.player.y - 24, '吸血 +' + heal, '#ff6b6b');
+            this.state.effects.push({ type: 'element', element: 'heal', x: this.state.player.x, y: this.state.player.y, t: 0, life: 0.35 });
         }
 
         if (bullet.chain > 0) {
@@ -702,7 +776,8 @@ class CombatSystem {
             const chainDmg = Math.round(bullet.dmg * (bullet.chainDmg || 0.5));
             t.hp -= chainDmg;
             window.floatText(t.x, t.y - t.r, '连锁 -' + chainDmg, '#8cecff');
-            this.state.effects.push({ type: 'element', element: 'chain', x: t.x, y: t.y, t: 0, life: 0.4 });
+            this.state.effects.push({ type: 'lightning', x: source.x, y: source.y, x2: t.x, y2: t.y, t: 0, life: 0.22 });
+            this.state.effects.push({ type: 'hit', x: t.x, y: t.y, color: '#c7a1ff', t: 0, life: 0.28 });
             if (t.hp <= 0) this.killMonster(t);
         }
     }
@@ -854,6 +929,7 @@ class CombatSystem {
     }
 
     _openChest(chest) {
+        if (window.audioManager) window.audioManager.pickup();
         this.state.effects.push({ type: 'boom', x: chest.x, y: chest.y, color: '#ffd700', t: 0, life: 0.6 });
         const roll = Math.random();
         const p = this.state.player;
@@ -925,7 +1001,7 @@ class CombatSystem {
             const blocked = Math.min(p.shield, actualDmg);
             p.shield -= blocked;
             actualDmg -= blocked;
-            if (p.shield <= 0) p.shieldCooldown = 3;
+            if (p.shield <= 0) p.shieldCooldown = p.mods.shieldCd || 8;
             this.state.effects.push({ type: 'element', element: 'shield', x: p.x, y: p.y, t: 0, life: 0.4 });
         }
 
@@ -944,6 +1020,7 @@ class CombatSystem {
 
         p.hp -= actualDmg;
         window.floatText(p.x, p.y - 24, '-' + actualDmg, '#ff6b6b');
+        this.state.effects.push({ type: 'hurt', x: p.x, y: p.y, t: 0, life: 0.2 });
 
         if (p.hp <= 0) {
             this.state.state = 'clear';
@@ -960,6 +1037,9 @@ class CombatSystem {
     }
 
     killMonster(monster, index) {
+        if (monster._dead) return;
+        monster._dead = true;
+        if (window.audioManager) window.audioManager.hit();
         window.G.flags.kills = (window.G.flags.kills || 0) + 1;
         window.checkAchievements();
 
@@ -1004,7 +1084,8 @@ class CombatSystem {
                     splitChild: true,
                     splitOnDeath: false,
                     explode: false,
-                    shield: 0
+                    shield: 0,
+                    _dead: false
                 }));
             }
         }

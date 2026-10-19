@@ -27,7 +27,7 @@ body {
 .login-box, .create-box { text-align: center; position: relative; overflow: hidden; }
 .login-bg {
     position: absolute; inset: 0; z-index: 0; opacity: 0.15;
-    background: url('../assets/village_bg.jpg') center/cover;
+    background: url('../assets/village_bg.webp') center/cover;
 }
 .login-box > *:not(.login-bg), .create-box > * { position: relative; z-index: 1; }
 .login-title { font-size: 30px; color: var(--brown); margin-bottom: 6px; font-weight: 800; }
@@ -572,4 +572,59 @@ body {
 .dual-choice-card .enemy-effect .val { color: #ff8477; }
 @media (max-width: 700px) {
     .dual-choice-grid { flex-direction: column; }
+}
+/* 三列抽卡布局：玩家 / 诅咒 / 妖魔，底部固定确认 */
+#dualCardOverlay .dual-card-box {
+    width: min(1180px, 96vw);
+    max-width: 1180px;
+    max-height: 94vh;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+#dualCardOverlay .dual-card-box > h2 { flex: 0 0 auto; margin-bottom: 10px; }
+#dualCardOverlay .dual-cards {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    overflow-y: auto;
+    padding: 2px 6px 8px 2px;
+}
+#dualCardOverlay .card-column { min-width: 0; display: flex; flex-direction: column; }
+#dualCardOverlay .card-column h3 {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    margin: 0 0 8px;
+    padding: 5px 0;
+    background: #f6edda;
+    font-size: 14px;
+}
+#dualCardOverlay .dual-cards .card-choices { display: flex; flex-direction: column; gap: 10px; }
+#dualCardOverlay .dual-cards .choice-card {
+    min-height: 0;
+    padding: 10px 10px 10px 64px;
+    margin: 0;
+}
+#dualCardOverlay .dual-cards .card-art-frame {
+    width: 44px;
+    height: 44px;
+    top: 9px;
+    left: 9px;
+    margin: 0;
+    border-radius: 12px;
+}
+#dualCardOverlay .dual-cards .card-art { width: 34px; height: 34px; }
+#dualCardOverlay .choice-card .card-name { font-size: 13px; line-height: 1.3; padding-right: 0; }
+#dualCardOverlay .card-rank { display: inline-block; margin-left: 4px; padding: 1px 4px; font-size: 9px; }
+#dualCardOverlay .choice-card .card-desc { min-height: 0; font-size: 11px; line-height: 1.4; }
+#dualCardOverlay .card-effects { margin-top: 6px; padding-top: 6px; }
+#dualCardOverlay .effect-line { font-size: 10px; }
+#dualCardOverlay #confirmDualBtn { flex: 0 0 auto; margin-top: 12px; }
+@media (max-width: 900px) {
+    #dualCardOverlay .dual-cards { grid-template-columns: 1fr; }
+    #dualCardOverlay .dual-card-box { width: 96vw; }
 }

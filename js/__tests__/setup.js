@@ -116,7 +116,7 @@ global.Image = class {
 
 // 模拟Element.getBoundingClientRect
 Element.prototype.getBoundingClientRect = function() {
-  return { left: 0, top: 0, width: 100, height: 100 };
+  return { left: 0, top: 0, width: 960, height: 540 };
 };
 
 // 设置全局常量
