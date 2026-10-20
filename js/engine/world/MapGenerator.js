@@ -77,18 +77,18 @@ class MapGenerator {
         return creatures;
     }
 
-    generateFloorScenery(floor, mapSeed, W, H, PAD) {
+    generateFloorScenery(floor, mapSeed, W, H, PAD, theme) {
         const seed = (mapSeed + floor * 7919 + 104729) % 2147483647;
         const random = this._makeRandom(seed);
 
-        const terrain = floor === 1 ? 'forest' :
+        const terrain = theme || (floor === 1 ? 'forest' :
             floor <= 3 ? 'ruins' :
             floor === 4 ? 'bones' :
             floor === 5 ? 'mine' :
             floor === 6 ? 'bamboo' :
             floor === 7 ? 'lava' :
             floor === 8 ? 'temple' :
-            floor === 9 ? 'ice' : 'altar';
+            floor === 9 ? 'ice' : 'altar');
 
         const scenery = [];
         const add = (type, count, minSize, maxSize, colors) => {
@@ -142,18 +142,18 @@ class MapGenerator {
         return scenery;
     }
 
-    generateFloorLandmarks(floor, mapSeed, W, H, PAD) {
+    generateFloorLandmarks(floor, mapSeed, W, H, PAD, theme) {
         const seed = (mapSeed + floor * 104729) % 2147483647;
         const random = this._makeRandom(seed);
 
-        const terrain = floor === 1 ? 'forest' :
+        const terrain = theme || (floor === 1 ? 'forest' :
             floor <= 3 ? 'ruins' :
             floor === 4 ? 'bones' :
             floor === 5 ? 'mine' :
             floor === 6 ? 'bamboo' :
             floor === 7 ? 'lava' :
             floor === 8 ? 'temple' :
-            floor === 9 ? 'ice' : 'altar';
+            floor === 9 ? 'ice' : 'altar');
 
         const options = {
             forest: ['grove', 'pool', 'fallen-log'],
@@ -224,7 +224,7 @@ class MapGenerator {
         return landmarks;
     }
 
-    generateFloorTraps(floor, mapSeed, time, W, H, PAD) {
+    generateFloorTraps(floor, mapSeed, time, W, H, PAD, trapType) {
         const trapTypes = {
             1: 'roots', 2: 'blade', 3: 'sinkhole', 4: 'bone', 5: 'crystal',
             6: 'miasma', 7: 'fire', 8: 'rune', 9: 'ice', 10: 'altar'
@@ -243,7 +243,7 @@ class MapGenerator {
             altar: { name: '蟒巢聚灵坛', hint: '范围内妖兽会周期回春', color: '#e692ff', damage: 15, damageRatio: 0.14 }
         };
 
-        const type = trapTypes[floor] || 'rune';
+        const type = trapType || trapTypes[floor] || 'rune';
         const trapCount = floor >= 10 ? 3 : floor >= 6 ? 4 : 3;
         const traps = [];
         const seed = (mapSeed + floor * 31337) % 2147483647;
@@ -278,7 +278,7 @@ class MapGenerator {
         return traps;
     }
 
-    generateArenaLayout(floor, mapSeed, W, H) {
+    generateArenaLayout(floor, mapSeed, W, H, arenaStyle) {
         const layouts = {
             1: [[.08,.03],[.92,.03],[.99,.20],[.87,.44],[.96,.78],[.77,.97],[.23,.97],[.04,.78],[.13,.44],[.01,.20]],
             2: [[.24,.03],[.76,.03],[.97,.22],[.97,.76],[.76,.97],[.24,.97],[.03,.76],[.03,.22]],
@@ -296,11 +296,22 @@ class MapGenerator {
             14: [[.12,.03],[.38,.04],[.58,.18],[.86,.10],[.98,.36],[.90,.60],[.96,.83],[.78,.95],[.22,.97],[.04,.82],[.10,.48],[.02,.20]]
         };
 
-        const base = layouts[floor] || layouts[1];
+        let points = layouts[floor] || layouts[1];
+        if (arenaStyle === 'cavern') {
+            // 赤炎洞窟：向中心收束，形成狭窄的环形溶洞
+            points = points.map(([x, y]) => [0.5 + (x - 0.5) * 0.68, 0.5 + (y - 0.5) * 0.68]);
+        } else if (arenaStyle === 'cross') {
+            // 寒潭秘境：十字形冰台，四角留出空场
+            points = [[.5,.03],[.78,.06],[.97,.30],[.94,.62],[.72,.94],[.42,.97],[.08,.82],[.03,.52],[.06,.22],[.26,.06]];
+        } else if (arenaStyle === 'corridor') {
+            // 幽冥古墟：狭长走廊 + 两端祭台
+            points = [[.08,.16],[.08,.5],[.08,.84],[.25,.3],[.25,.7],[.75,.3],[.75,.7],[.92,.16],[.92,.5],[.92,.84],[.5,.1],[.5,.9]];
+        }
+
         const seed = (mapSeed + floor * 31337) % 2147483647;
         const random = this._makeRandom(seed);
 
-        const arena = base.map(([rx, ry]) => ({
+        const arena = points.map(([rx, ry]) => ({
             x: rx * W,
             y: ry * H,
             vx: (random() - 0.5) * 20,

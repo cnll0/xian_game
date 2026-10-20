@@ -348,7 +348,9 @@ class Engine {
             linyue: { x: 96, y: 0 },
             shenli: { x: 192, y: 0 },
             guqinghan: { x: 288, y: 0 },
-            mochen: { x: 384, y: 0 }
+            mochen: { x: 384, y: 0 },
+            jichang: { x: 480, y: 0 },
+            hanxing: { x: 576, y: 0 }
         };
 
         const pos = npcPortraits[npcId];

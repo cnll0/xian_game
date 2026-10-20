@@ -32,6 +32,11 @@ class CombatSystem {
 
         this.state.dungeon = window.DUNGEONS.find(d => d.id === dungeonId) || window.DUNGEONS[0];
         this.state.dungeonId = this.state.dungeon.id;
+        this.state.dungeonMods = Object.assign({
+            playerSpeed: 1, monsterSpeed: 1, damageTaken: 1, regen: 0, visibility: 1, slip: 0
+        }, this.state.dungeon.mods || {});
+        this.state.bossElement = this.state.dungeon.bossElement || '#ff6b6b';
+        this.state.ambient = this.state.dungeon.ambient || 'leaves';
         this.state.floorCount = this.state.dungeon.floorCount;
         this.state.floor = Math.max(1, Number(startFloor) || 1);
         this.state.time = 0;
@@ -89,7 +94,9 @@ class CombatSystem {
                 doubleHit: false, pierce: false, knockback: 0, stunChance: 0, stunDur: 0,
                 elemFire: false, elemDmg: 0, elemIce: false, freezeChance: 0, freezeDur: 0,
                 chain: 0, chainDmg: 0, dashStrike: false, dashCd: 0,
-                shield: 0, shieldCd: 0, dodge: 0, regen: 0, thorns: 0,
+                shield: 0, shieldCd: 0, dodge: 0,
+                regen: this.state.dungeon.mods && this.state.dungeon.mods.regen ? this.state.dungeon.mods.regen : 0,
+                thorns: 0,
                 combo: 0, split: 0, explode: 0, burnTime: 0,
                 evoBlade: false, evoFlame: false, evoFrost: false, evoStorm: false,
                 evoAegis: false, evoPhantom: false, evoSoul: false, evoRuin: false, evoBloom: false
@@ -108,18 +115,39 @@ class CombatSystem {
      * @param {number} floor
      * @returns {Promise<void>}
      */
+    _floorTheme(floor) {
+        const dungeon = this.state.dungeon || {};
+        const themes = dungeon.floorThemes || [];
+        return themes[floor - 1] || themes[0] || dungeon.theme || null;
+    }
+
+    _trapType(floor) {
+        const dungeon = this.state.dungeon || {};
+        const sequence = dungeon.trapSequence || [];
+        return sequence[floor - 1] || sequence[0] || null;
+    }
+
+    _arenaStyle() {
+        return (this.state.dungeon && this.state.dungeon.arenaStyle) || 'ring';
+    }
+
     async _spawnFloorAsync(floor) {
         this.state.state = 'loading'; // 显示加载状态
         window.updateHUD();
 
         const { W, H, PAD } = this.constants;
+        const options = {
+            theme: this._floorTheme(floor),
+            trapType: this._trapType(floor),
+            arenaStyle: this._arenaStyle()
+        };
 
         try {
             if (this.useWorker && this.mapGeneratorWorker) {
                 // 确保Worker已初始化
                 await this.mapGeneratorWorker.init();
                 const { scenery, landmarks, traps, arena } =
-                    await this.mapGeneratorWorker.generateFullFloor(floor, this.state.mapSeed, this.state.time);
+                    await this.mapGeneratorWorker.generateFullFloor(floor, this.state.mapSeed, this.state.time, options);
 
                 this.state.scenery = scenery;
                 this.state.landmarks = landmarks;
@@ -143,11 +171,14 @@ class CombatSystem {
      */
     _spawnFloorSync(floor) {
         const { W, H, PAD } = this.constants;
+        const theme = this._floorTheme(floor);
+        const trapType = this._trapType(floor);
+        const arenaStyle = this._arenaStyle();
 
-        this.state.scenery = this.mapGenerator.generateFloorScenery(floor, this.state.mapSeed, W, H, PAD);
-        this.state.landmarks = this.mapGenerator.generateFloorLandmarks(floor, this.state.mapSeed, W, H, PAD);
-        this.state.traps = this.mapGenerator.generateFloorTraps(floor, this.state.mapSeed, this.state.time, W, H, PAD);
-        this.state.arena = this.mapGenerator.generateArenaLayout(floor, this.state.mapSeed, W, H);
+        this.state.scenery = this.mapGenerator.generateFloorScenery(floor, this.state.mapSeed, W, H, PAD, theme);
+        this.state.landmarks = this.mapGenerator.generateFloorLandmarks(floor, this.state.mapSeed, W, H, PAD, theme);
+        this.state.traps = this.mapGenerator.generateFloorTraps(floor, this.state.mapSeed, this.state.time, W, H, PAD, trapType);
+        this.state.arena = this.mapGenerator.generateArenaLayout(floor, this.state.mapSeed, W, H, arenaStyle);
     }
 
     /**
@@ -157,6 +188,8 @@ class CombatSystem {
         const floor = this.state.floor;
         const { W, H, PAD } = this.constants;
         const dungeon = this.state.dungeon || window.DUNGEONS[0];
+        this.state.floorTheme = this._floorTheme(floor);
+        this.state.ambient = dungeon.ambient || 'leaves';
         const pool = dungeon.floorPool[Math.min(floor, dungeon.floorPool.length) - 1] || ['wolf'];
         const isBossFloor = pool.some(id => window.MONSTERS[id] && window.MONSTERS[id].boss);
 
@@ -228,7 +261,7 @@ class CombatSystem {
                 x: 0, y: 0
             };
 
-            const pos = this._randomArenaPosition(PAD + 60, H - PAD - 60, m.r);
+            const pos = this._arenaSpawnPosition(i, isBossFloor, m.r);
             m.x = pos.x; m.y = pos.y;
             this.state.monsters.push(m);
         }
@@ -261,6 +294,18 @@ class CombatSystem {
         }
     }
 
+    _arenaSpawnPosition(index, isBoss, radius) {
+        const { W, H, PAD } = this.constants;
+        if (isBoss) return { x: W / 2, y: H * 0.32 };
+        const arena = this.state.arena || [];
+        if (!arena.length) return this._randomArenaPosition(PAD + 60, H - PAD - 60, radius);
+        const point = arena[index % arena.length];
+        return {
+            x: MathUtils.clamp(point.x + (Math.random() - 0.5) * 70, PAD + radius + 20, W - PAD - radius - 20),
+            y: MathUtils.clamp(point.y + (Math.random() - 0.5) * 70, PAD + radius + 30, H - PAD - radius - 30)
+        };
+    }
+
     _applyMonsterModifier(key, value) {
         if (typeof value === 'boolean') this.state.monsterMods[key] = value;
         else if (key === 'hpMul' || key === 'atkMul' || key === 'spdMul') this.state.monsterMods[key] *= value;
@@ -287,7 +332,11 @@ class CombatSystem {
         try {
             if (this.useWorker && this.mapGeneratorWorker) {
                 const { scenery, landmarks, traps, arena } =
-                    await this.mapGeneratorWorker.generateFullFloor(this.state.floor, this.state.mapSeed, this.state.time);
+                    await this.mapGeneratorWorker.generateFullFloor(this.state.floor, this.state.mapSeed, this.state.time, {
+                        theme: this._floorTheme(this.state.floor),
+                        trapType: this._trapType(this.state.floor),
+                        arenaStyle: this._arenaStyle()
+                    });
 
                 this.state.scenery = scenery;
                 this.state.landmarks = landmarks;
@@ -397,7 +446,9 @@ class CombatSystem {
         const mv = input.movement;
 
         const slowed = (p.slowTime || 0) > 0 || (p.slideTime || 0) > 0;
-        let speed = (slowed ? 0.45 : 1) * Math.max(0.8, p.mods.speed ? window.G.speed + p.mods.speed : window.G.speed) * 60;
+        const dungeonSpeed = (this.state.dungeonMods && this.state.dungeonMods.playerSpeed) || 1;
+        let speed = (slowed ? 0.45 : 1) * dungeonSpeed *
+            Math.max(0.8, p.mods.speed ? window.G.speed + p.mods.speed : window.G.speed) * 60;
 
         if (p.slideTime > 0) {
             p.x = MathUtils.clamp(p.x + p.iceDriftX * speed * dt, this.constants.PAD + p.r, this.constants.W - this.constants.PAD - p.r);
@@ -571,13 +622,14 @@ class CombatSystem {
             }
 
             const desired = m.ranged && m.keepDistance ? m.shootRange * 0.6 : m.r + p.r + 10;
+            const dungeonMonsterSpeed = (this.state.dungeonMods && this.state.dungeonMods.monsterSpeed) || 1;
             if (dist > desired) {
-                const moveSpeed = m.speed * 60;
+                const moveSpeed = m.speed * 60 * dungeonMonsterSpeed;
                 m.x += dx / dist * moveSpeed * dt;
                 m.y += dy / dist * moveSpeed * dt;
                 m.facing = Math.atan2(dy, dx);
             } else if (m.keepDistance && dist < desired * 0.55) {
-                const moveSpeed = m.speed * 60;
+                const moveSpeed = m.speed * 60 * dungeonMonsterSpeed;
                 m.x -= dx / dist * moveSpeed * dt;
                 m.y -= dy / dist * moveSpeed * dt;
                 m.facing = Math.atan2(dy, dx);
@@ -617,7 +669,7 @@ class CombatSystem {
                 vy: Math.sin(angle) * 125,
                 r: 7,
                 dmg: Math.max(1, Math.round(monster.atk * 0.65)),
-                color: '#ff6b6b',
+                color: this.state.bossElement || '#ff6b6b',
                 hostile: true,
                 life: 3.5
             });
@@ -956,12 +1008,12 @@ class CombatSystem {
     }
 
     _updateFloorNpc() {
-        const npc = this.state.floorNpc;
+        const floorNpc = this.state.floorNpc;
         const p = this.state.player;
-        if (!npc || npc.used || !p) return;
-        if (Math.hypot(p.x - npc.x, p.y - npc.y) < 62 && typeof window.onDungeonNpcNearby === 'function') {
-            npc.used = true;
-            window.onDungeonNpcNearby(npc);
+        if (!floorNpc || floorNpc.used || !p) return;
+        if (Math.hypot(p.x - floorNpc.x, p.y - floorNpc.y) < 62 && typeof window.onDungeonNpcNearby === 'function') {
+            floorNpc.used = true;
+            window.onDungeonNpcNearby(floorNpc.npc);
         }
     }
 
@@ -995,7 +1047,8 @@ class CombatSystem {
 
     hurtPlayer(damage) {
         const p = this.state.player;
-        let actualDmg = damage;
+        const dungeonTaken = (this.state.dungeonMods && this.state.dungeonMods.damageTaken) || 1;
+        let actualDmg = Math.max(1, Math.round(damage * dungeonTaken));
 
         if (p.shield > 0) {
             const blocked = Math.min(p.shield, actualDmg);

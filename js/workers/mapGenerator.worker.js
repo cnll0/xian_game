@@ -117,18 +117,18 @@ function makeRandom(seed) {
 }
 
 // 主生成函数
-function generateFloorScenery(floor, mapSeed, W, H, PAD) {
+function generateFloorScenery(floor, mapSeed, W, H, PAD, theme) {
     const seed = (mapSeed + floor * 7919 + 104729) % 2147483647;
     const random = makeRandom(seed);
 
-    const terrain = floor === 1 ? 'forest' :
+    const terrain = theme || (floor === 1 ? 'forest' :
         floor <= 3 ? 'ruins' :
         floor === 4 ? 'bones' :
         floor === 5 ? 'mine' :
         floor === 6 ? 'bamboo' :
         floor === 7 ? 'lava' :
         floor === 8 ? 'temple' :
-        floor === 9 ? 'ice' : 'altar';
+        floor === 9 ? 'ice' : 'altar');
 
     const config = TERRAIN_CONFIG[terrain] || TERRAIN_CONFIG.ruins;
     const scenery = [];
@@ -157,18 +157,18 @@ function generateFloorScenery(floor, mapSeed, W, H, PAD) {
     return scenery;
 }
 
-function generateFloorLandmarks(floor, mapSeed, W, H, PAD) {
+function generateFloorLandmarks(floor, mapSeed, W, H, PAD, theme) {
     const seed = (mapSeed + floor * 104729) % 2147483647;
     const random = makeRandom(seed);
 
-    const terrain = floor === 1 ? 'forest' :
+    const terrain = theme || (floor === 1 ? 'forest' :
         floor <= 3 ? 'ruins' :
         floor === 4 ? 'bones' :
         floor === 5 ? 'mine' :
         floor === 6 ? 'bamboo' :
         floor === 7 ? 'lava' :
         floor === 8 ? 'temple' :
-        floor === 9 ? 'ice' : 'altar';
+        floor === 9 ? 'ice' : 'altar');
 
     const options = LANDMARK_OPTIONS[terrain] || LANDMARK_OPTIONS.ruins;
     const colors = LANDMARK_COLORS[terrain] || LANDMARK_COLORS.ruins;
@@ -219,8 +219,8 @@ function generateFloorLandmarks(floor, mapSeed, W, H, PAD) {
     return landmarks;
 }
 
-function generateFloorTraps(floor, mapSeed, time, W, H, PAD) {
-    const type = TRAP_TYPES[floor] || 'rune';
+function generateFloorTraps(floor, mapSeed, time, W, H, PAD, trapType) {
+    const type = trapType || TRAP_TYPES[floor] || 'rune';
     const trapCount = floor >= 10 ? 3 : floor >= 6 ? 4 : 3;
     const traps = [];
     const seed = (mapSeed + floor * 31337) % 2147483647;
@@ -255,12 +255,20 @@ function generateFloorTraps(floor, mapSeed, time, W, H, PAD) {
     return traps;
 }
 
-function generateArenaLayout(floor, mapSeed, W, H) {
-    const base = ARENA_LAYOUTS[floor] || ARENA_LAYOUTS[1];
+function generateArenaLayout(floor, mapSeed, W, H, arenaStyle) {
+    let points = ARENA_LAYOUTS[floor] || ARENA_LAYOUTS[1];
+    if (arenaStyle === 'cavern') {
+        points = points.map(([x, y]) => [0.5 + (x - 0.5) * 0.68, 0.5 + (y - 0.5) * 0.68]);
+    } else if (arenaStyle === 'cross') {
+        points = [[.5,.03],[.78,.06],[.97,.30],[.94,.62],[.72,.94],[.42,.97],[.08,.82],[.03,.52],[.06,.22],[.26,.06]];
+    } else if (arenaStyle === 'corridor') {
+        points = [[.08,.16],[.08,.5],[.08,.84],[.25,.3],[.25,.7],[.75,.3],[.75,.7],[.92,.16],[.92,.5],[.92,.84],[.5,.1],[.5,.9]];
+    }
+
     const seed = (mapSeed + floor * 31337) % 2147483647;
     const random = makeRandom(seed);
 
-    return base.map(([rx, ry]) => ({
+    return points.map(([rx, ry]) => ({
         x: rx * W,
         y: ry * H,
         vx: (random() - 0.5) * 20,
@@ -278,36 +286,36 @@ self.onmessage = function(e) {
             break;
         }
         case 'GENERATE_FLOOR_SCENERY': {
-            const { floor, mapSeed } = payload;
-            const scenery = generateFloorScenery(floor, mapSeed, W, H, PAD);
+            const { floor, mapSeed, theme } = payload;
+            const scenery = generateFloorScenery(floor, mapSeed, W, H, PAD, theme);
             self.postMessage({ type: 'FLOOR_SCENERY_READY', requestId, floor, scenery });
             break;
         }
         case 'GENERATE_FLOOR_LANDMARKS': {
-            const { floor, mapSeed } = payload;
-            const landmarks = generateFloorLandmarks(floor, mapSeed, W, H, PAD);
+            const { floor, mapSeed, theme } = payload;
+            const landmarks = generateFloorLandmarks(floor, mapSeed, W, H, PAD, theme);
             self.postMessage({ type: 'FLOOR_LANDMARKS_READY', requestId, floor, landmarks });
             break;
         }
         case 'GENERATE_FLOOR_TRAPS': {
-            const { floor, mapSeed, time } = payload;
-            const traps = generateFloorTraps(floor, mapSeed, time, W, H, PAD);
+            const { floor, mapSeed, time, trapType } = payload;
+            const traps = generateFloorTraps(floor, mapSeed, time, W, H, PAD, trapType);
             self.postMessage({ type: 'FLOOR_TRAPS_READY', requestId, floor, traps });
             break;
         }
         case 'GENERATE_ARENA_LAYOUT': {
-            const { floor, mapSeed } = payload;
-            const arena = generateArenaLayout(floor, mapSeed, W, H);
+            const { floor, mapSeed, arenaStyle } = payload;
+            const arena = generateArenaLayout(floor, mapSeed, W, H, arenaStyle);
             self.postMessage({ type: 'ARENA_LAYOUT_READY', requestId, floor, arena });
             break;
         }
         case 'GENERATE_FULL_FLOOR': {
             // 一次性生成整层所有数据
-            const { floor, mapSeed, time } = payload;
-            const scenery = generateFloorScenery(floor, mapSeed, W, H, PAD);
-            const landmarks = generateFloorLandmarks(floor, mapSeed, W, H, PAD);
-            const traps = generateFloorTraps(floor, mapSeed, time, W, H, PAD);
-            const arena = generateArenaLayout(floor, mapSeed, W, H);
+            const { floor, mapSeed, time, theme, trapType, arenaStyle } = payload;
+            const scenery = generateFloorScenery(floor, mapSeed, W, H, PAD, theme);
+            const landmarks = generateFloorLandmarks(floor, mapSeed, W, H, PAD, theme);
+            const traps = generateFloorTraps(floor, mapSeed, time, W, H, PAD, trapType);
+            const arena = generateArenaLayout(floor, mapSeed, W, H, arenaStyle);
             self.postMessage({ type: 'FULL_FLOOR_READY', requestId, floor, scenery, landmarks, traps, arena });
             break;
         }

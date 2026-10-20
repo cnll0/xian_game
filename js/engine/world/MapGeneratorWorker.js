@@ -102,8 +102,8 @@ class MapGeneratorWorker {
      * @param {number} mapSeed - 地图种子
      * @returns {Promise<Array>} scenery数组
      */
-    async generateFloorScenery(floor, mapSeed) {
-        const { scenery } = await this._request('GENERATE_FLOOR_SCENERY', { floor, mapSeed });
+    async generateFloorScenery(floor, mapSeed, theme) {
+        const { scenery } = await this._request('GENERATE_FLOOR_SCENERY', { floor, mapSeed, theme });
         return scenery;
     }
 
@@ -113,8 +113,8 @@ class MapGeneratorWorker {
      * @param {number} mapSeed - 地图种子
      * @returns {Promise<Array>} landmarks数组
      */
-    async generateFloorLandmarks(floor, mapSeed) {
-        const { landmarks } = await this._request('GENERATE_FLOOR_LANDMARKS', { floor, mapSeed });
+    async generateFloorLandmarks(floor, mapSeed, theme) {
+        const { landmarks } = await this._request('GENERATE_FLOOR_LANDMARKS', { floor, mapSeed, theme });
         return landmarks;
     }
 
@@ -125,8 +125,8 @@ class MapGeneratorWorker {
      * @param {number} time - 当前时间
      * @returns {Promise<Array>} traps数组
      */
-    async generateFloorTraps(floor, mapSeed, time) {
-        const { traps } = await this._request('GENERATE_FLOOR_TRAPS', { floor, mapSeed, time });
+    async generateFloorTraps(floor, mapSeed, time, trapType) {
+        const { traps } = await this._request('GENERATE_FLOOR_TRAPS', { floor, mapSeed, time, trapType });
         return traps;
     }
 
@@ -136,8 +136,8 @@ class MapGeneratorWorker {
      * @param {number} mapSeed - 地图种子
      * @returns {Promise<Array>} arena数组
      */
-    async generateArenaLayout(floor, mapSeed) {
-        const { arena } = await this._request('GENERATE_ARENA_LAYOUT', { floor, mapSeed });
+    async generateArenaLayout(floor, mapSeed, arenaStyle) {
+        const { arena } = await this._request('GENERATE_ARENA_LAYOUT', { floor, mapSeed, arenaStyle });
         return arena;
     }
 
@@ -148,8 +148,15 @@ class MapGeneratorWorker {
      * @param {number} time - 当前时间
      * @returns {Promise<Object>} { scenery, landmarks, traps, arena }
      */
-    async generateFullFloor(floor, mapSeed, time) {
-        return this._request('GENERATE_FULL_FLOOR', { floor, mapSeed, time });
+    async generateFullFloor(floor, mapSeed, time, options = {}) {
+        return this._request('GENERATE_FULL_FLOOR', {
+            floor,
+            mapSeed,
+            time,
+            theme: options.theme,
+            trapType: options.trapType,
+            arenaStyle: options.arenaStyle
+        });
     }
 
     /**

@@ -147,6 +147,14 @@ const DUNGEONS = [
     {
         id: 'qingyun', name: '青云外围', subtitle: '炼气境试炼', realmMin: 0, floorCount: 10,
         hpScale: 0.52, atkScale: 0.58, color: '#6f9a63', entry: { x: 900, y: 1390 },
+        gimmick: '林间试炼：地形平缓，适合熟悉战斗节奏。',
+        floorThemes: ['forest', 'ruins', 'bamboo', 'ruins', 'bones', 'bamboo', 'temple', 'forest', 'ruins', 'altar'],
+        trapSequence: ['roots', 'blade', 'sinkhole', 'bone', 'crystal', 'miasma', 'fire', 'rune', 'ice', 'altar'],
+        ambient: 'leaves',
+        arenaStyle: 'ring',
+        bossElement: '#7df9ff',
+        colorTint: 'rgba(70, 115, 78, 0.10)',
+        mods: { playerSpeed: 1, monsterSpeed: 1, damageTaken: 1, regen: 0.0015, visibility: 1 },
         floorPool: [
             ['wolf', 'bat'], ['wolf', 'bat'], ['wolf', 'spider'], ['bat', 'spider'],
             ['wolf', 'spider', 'slimelet'], ['bat', 'spider', 'slimelet'],
@@ -157,18 +165,42 @@ const DUNGEONS = [
     {
         id: 'ember', name: '赤炎洞窟', subtitle: '炼气五重开放', realmMin: 4, floorCount: 5,
         hpScale: 0.9, atkScale: 0.9, color: '#ce7045', entry: { x: 2730, y: 1210 },
+        gimmick: '地火灼烧：火穴与熔岩陷坑更密集，移动速度略快，受到的伤害提高。',
+        floorThemes: ['lava', 'mine', 'lava', 'temple', 'lava'],
+        trapSequence: ['fire', 'crystal', 'blade', 'fire', 'altar'],
+        ambient: 'embers',
+        arenaStyle: 'cavern',
+        bossElement: '#ff743e',
+        colorTint: 'rgba(170, 70, 30, 0.20)',
+        mods: { playerSpeed: 1.06, monsterSpeed: 1.02, damageTaken: 1.12, regen: 0, visibility: 1 },
         floorPool: [['wolf', 'bat'], ['spider', 'brute'], ['charger', 'brute'], ['elite', 'charger'], ['emberBoss']],
         techniques: ['ember_blade', 'stone_skin'], position: { x: 2730, y: 1210 }
     },
     {
         id: 'frost', name: '寒潭秘境', subtitle: '筑基境开放', realmMin: 9, floorCount: 5,
         hpScale: 1.12, atkScale: 1.08, color: '#72bdcf', entry: { x: 3020, y: 930 },
+        gimmick: '寒潭滑裂：冰面会拖慢并让角色滑行，冰刺与寒晶陷阱更常见。',
+        floorThemes: ['ice', 'ice', 'temple', 'ice', 'altar'],
+        trapSequence: ['ice', 'sinkhole', 'crystal', 'ice', 'altar'],
+        ambient: 'snow',
+        arenaStyle: 'cross',
+        bossElement: '#8cecff',
+        colorTint: 'rgba(75, 150, 190, 0.18)',
+        mods: { playerSpeed: 0.94, monsterSpeed: 0.96, damageTaken: 1, regen: 0, visibility: 1, slip: 0.32 },
         floorPool: [['bat', 'spider'], ['wraith', 'skeleton'], ['frostwitch', 'wraith'], ['shaman', 'frostwitch'], ['frostBoss']],
         techniques: ['frost_breath', 'flowing_sword'], position: { x: 3020, y: 930 }
     },
     {
         id: 'nether', name: '幽冥古墟', subtitle: '金丹境开放', realmMin: 12, floorCount: 5,
         hpScale: 1.45, atkScale: 1.38, color: '#a07bd0', entry: { x: 3260, y: 470 },
+        gimmick: '幽冥侵蚀：视野受限，瘴气与镇魂阵更密集，妖魔移动更快。',
+        floorThemes: ['bones', 'ruins', 'temple', 'altar', 'bones'],
+        trapSequence: ['miasma', 'rune', 'bone', 'miasma', 'altar'],
+        ambient: 'wisps',
+        arenaStyle: 'corridor',
+        bossElement: '#b388e8',
+        colorTint: 'rgba(95, 65, 130, 0.28)',
+        mods: { playerSpeed: 1, monsterSpeed: 1.07, damageTaken: 1.05, regen: 0, visibility: 0.72 },
         floorPool: [['wraith', 'spider'], ['shaman', 'slime'], ['elite', 'frostwitch'], ['elite', 'charger'], ['netherBoss']],
         techniques: ['soul_guard', 'void_step'], position: { x: 3260, y: 470 }
     }
