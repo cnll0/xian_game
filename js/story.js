@@ -61,20 +61,31 @@ function showNpcDialog(npc, line, hideChoices) {
     let score = getNpcRelation(npc);
     let relation = npcRelationLabel(score);
     let portrait = $('npcPortrait');
-    portrait.setAttribute('aria-label', npc.name + '立绘');
-    if (!Engine.drawNpcPortrait(npc.id, portrait)) {
-        throw new Error('NPC portrait sprite is not ready: ' + npc.id);
+    portrait.setAttribute('aria-label', (npc.name || '未知NPC') + '立绘');
+    
+    // 容错：如果npc.id缺失，尝试从name推断或使用默认立绘
+    const npcId = npc.id || (npc.name ? npc.name.toLowerCase().replace(/\s+/g, '') : 'ningxiao');
+    if (!Engine.drawNpcPortrait(npcId, portrait)) {
+        // 静默失败，显示占位符而非抛出错误
+        const ctx = portrait.getContext('2d');
+        ctx.fillStyle = '#333';
+        ctx.fillRect(0, 0, portrait.width, portrait.height);
+        ctx.fillStyle = '#fff';
+        ctx.font = '12px "Microsoft YaHei", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('?', portrait.width / 2, portrait.height / 2);
     }
-    $('npcFaction').textContent = npc.faction;
-    $('npcName').textContent = npc.name;
-    $('npcTitle').textContent = npc.title;
-    $('npcDialogue').textContent = line || npc.greeting;
+    $('npcFaction').textContent = npc.faction || '未知';
+    $('npcName').textContent = npc.name || '未知';
+    $('npcTitle').textContent = npc.title || '';
+    $('npcDialogue').textContent = line || npc.greeting || '……';
     let badge = $('npcRelation');
     badge.textContent = relation.label;
     badge.className = 'npc-relation' + (relation.className ? ' ' + relation.className : '');
     let options = $('npcOptions');
     options.replaceChildren();
-    if (!hideChoices) npc.choices.forEach((choice, index) => {
+    if (!hideChoices && npc.choices) npc.choices.forEach((choice, index) => {
         let button = document.createElement('button');
         button.type = 'button';
         button.className = 'option-btn';

@@ -341,7 +341,18 @@ class Engine {
     _drawNpcPortrait(npcId, canvas) {
         const ctx = canvas.getContext('2d');
         const img = this.gameState.runtime.assets.images.npcSprites;
-        if (!img) return false;
+        
+        // 如果图片未加载完成，绘制占位符并返回true避免上层抛错
+        if (!img || !img.complete) {
+            ctx.fillStyle = '#2a2a3e';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#888';
+            ctx.font = '10px "Microsoft YaHei", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('加载中...', canvas.width / 2, canvas.height / 2);
+            return true;
+        }
 
         const npcPortraits = {
             ningxiao: { x: 0, y: 0 },
@@ -354,7 +365,17 @@ class Engine {
         };
 
         const pos = npcPortraits[npcId];
-        if (!pos) return false;
+        if (!pos) {
+            // 未知NPC ID，绘制问号占位符
+            ctx.fillStyle = '#2a2a3e';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#fff';
+            ctx.font = '24px "Microsoft YaHei", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('?', canvas.width / 2, canvas.height / 2);
+            return true;
+        }
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, pos.x, pos.y, 96, 96, 0, 0, 96, 96);
