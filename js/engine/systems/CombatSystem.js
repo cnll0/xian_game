@@ -104,9 +104,8 @@ class CombatSystem {
         };
 
         this.state.running = true;
-        this.state.state = 'playing';
-        // 异步生成首层
-        this._spawnFloorAsync(this.state.floor);
+        // 使用新的秘境世界模式
+        this._spawnDungeonWorldAsync(this.state.floor);
         window.updateHUD();
     }
 
@@ -179,6 +178,158 @@ class CombatSystem {
         this.state.landmarks = this.mapGenerator.generateFloorLandmarks(floor, this.state.mapSeed, W, H, PAD, theme);
         this.state.traps = this.mapGenerator.generateFloorTraps(floor, this.state.mapSeed, this.state.time, W, H, PAD, trapType);
         this.state.arena = this.mapGenerator.generateArenaLayout(floor, this.state.mapSeed, W, H, arenaStyle);
+    }
+
+    /**
+     * 异步生成大型秘境世界地图
+     * @param {number} floor
+     * @returns {Promise<void>}
+     */
+    async _spawnDungeonWorldAsync(floor) {
+        this.state.state = 'loading';
+        window.updateHUD();
+
+        try {
+            if (this.useWorker && this.mapGeneratorWorker) {
+                await this.mapGeneratorWorker.init();
+                const world = await this.mapGeneratorWorker.generateDungeonWorld(
+                    this.state.dungeon, floor, this.state.mapSeed
+                );
+
+                this.state.dungeonWorld = world;
+                this.state.dungeonWorldMode = true;
+            } else {
+                this._spawnDungeonWorldSync(floor);
+            }
+        } catch (err) {
+            console.error('Worker生成秘境世界失败，回退同步:', err);
+            this._spawnDungeonWorldSync(floor);
+        }
+
+        this._finishSpawnDungeonWorld();
+    }
+
+    /**
+     * 同步生成大型秘境世界地图
+     * @param {number} floor
+     */
+    _spawnDungeonWorldSync(floor) {
+        const world = this.mapGenerator.generateDungeonWorld(this.state.dungeon, floor, this.state.mapSeed);
+        this.state.dungeonWorld = world;
+        this.state.dungeonWorldMode = true;
+    }
+
+    /**
+     * 秘境世界生成完成后的逻辑
+     */
+    _finishSpawnDungeonWorld() {
+        const floor = this.state.floor;
+        const dungeon = this.state.dungeon || window.DUNGEONS[0];
+        const world = this.state.dungeonWorld;
+
+        // 设置玩家初始位置在入口
+        const { W, H } = this.constants;
+        const entry = world.entry;
+        this.state.player = {
+            x: entry.x, y: entry.y,
+            r: 16,
+            hp: this.state.skirmish ? Math.min(window.G.hp, window.G.maxHp) : window.G.maxHp,
+            maxHp: window.G.maxHp,
+            facing: -Math.PI / 2,
+            atkCd: 0,
+            swinging: 0,
+            invuln: 0,
+            hitSet: null,
+            walkT: 0,
+            vx: 0, vy: 0,
+            dashCd: 0, dashTime: 0, dashVx: 0, dashVy: 0,
+            shield: 0, shieldMax: 0, shieldCooldown: 0,
+            anim: {
+                fw: 64, fh: 64, cols: 8, frameTime: 0.1,
+                dirMap: {
+                    up: 'player_north',
+                    down: 'player_south',
+                    left: 'player_west',
+                    upleft: 'player_northwest',
+                    downleft: 'player_southwest'
+                }
+            },
+            mods: {
+                atk: 0, maxHp: 0, speed: 0, range: 0, crit: 0, lifesteal: 0,
+                doubleHit: false, pierce: false, knockback: 0, stunChance: 0, stunDur: 0,
+                elemFire: false, elemDmg: 0, elemIce: false, freezeChance: 0, freezeDur: 0,
+                chain: 0, chainDmg: 0, dashStrike: false, dashCd: 0,
+                shield: 0, shieldCd: 0, dodge: 0, regen: 0, thorns: 0,
+                combo: 0, split: 0, explode: 0, burnTime: 0,
+                evoBlade: false, evoFlame: false, evoFrost: false, evoStorm: false,
+                evoAegis: false, evoPhantom: false, evoSoul: false, evoRuin: false, evoBloom: false
+            }
+        };
+
+        // 设置视野系统
+        this.state.playerVision = 280; // 玩家基础视野
+        this.state.explored = new Set(); // 已探索区域
+
+        // 怪物从生成的世界数据加载
+        this.state.monsters = world.creatures.map(c => ({
+            ...c,
+            facing: 0,
+            atkCd: 0,
+            stunCd: 0,
+            controlEffect: null
+        }));
+
+        // 陷阱
+        this.state.traps = world.traps;
+
+        // 地形装饰
+        this.state.scenery = world.decor;
+        this.state.landmarks = world.landmarks;
+
+        // NPC
+        this.state.floorNpc = null;
+        if (world.npcs && world.npcs.length > 0) {
+            const npcData = world.npcs[0];
+            this.state.floorNpc = {
+                x: npcData.x,
+                y: npcData.y,
+                phase: npcData.phase,
+                used: false,
+                npc: Object.assign({}, npcData.npc, {
+                    dungeonEncounter: true,
+                    title: npcData.title,
+                    greeting: npcData.line,
+                    choices: npcData.choices
+                })
+            };
+        }
+
+        // 宝箱（放在出口附近和随机位置）
+        this.state.chests = [];
+        const chestCount = this.state.floor < this.state.floorCount ? 2 : 0;
+        for (let i = 0; i < chestCount; i++) {
+            if (i === 0 && world.exit) {
+                this.state.chests.push({ x: world.exit.x, y: world.exit.y + 40, opened: false });
+            } else {
+                this.state.chests.push({
+                    x: 100 + Math.random() * (world.width - 200),
+                    y: 100 + Math.random() * (world.height - 200),
+                    opened: false
+                });
+            }
+        }
+
+        if (window.G.flags.maxFloor < this.state.floor) {
+            window.G.flags.maxFloor = this.state.floor;
+            window.checkAchievements();
+        }
+
+        window.toast('🏰 ' + dungeon.name + ' · 第' + this.state.floor + '/' + this.state.floorCount + '层 · ' + (window.FLOOR_NAMES[this.state.floor - 1] || '深处'), 'gold');
+        window.updateHUD();
+
+        if (this.state.floor > 1) window.showDualCardChoice();
+
+        this.state.state = 'dungeon_world';
     }
 
     /**
@@ -329,28 +480,51 @@ class CombatSystem {
         this.state.state = 'loading';
         window.updateHUD();
 
-        try {
-            if (this.useWorker && this.mapGeneratorWorker) {
-                const { scenery, landmarks, traps, arena } =
-                    await this.mapGeneratorWorker.generateFullFloor(this.state.floor, this.state.mapSeed, this.state.time, {
-                        theme: this._floorTheme(this.state.floor),
-                        trapType: this._trapType(this.state.floor),
-                        arenaStyle: this._arenaStyle()
-                    });
+        // 保留玩家当前状态（血量、修饰符等）
+        const playerHp = this.state.player ? this.state.player.hp : window.G.maxHp;
+        const playerMods = this.state.player ? this.state.player.mods : {};
 
-                this.state.scenery = scenery;
-                this.state.landmarks = landmarks;
-                this.state.traps = traps;
-                this.state.arena = arena;
+        try {
+            if (this.state.dungeonWorldMode) {
+                // 秘境世界模式：生成新的大地图
+                await this._spawnDungeonWorldAsync(this.state.floor);
             } else {
-                this._spawnFloorSync(this.state.floor);
+                // 兼容旧竞技场模式
+                if (this.useWorker && this.mapGeneratorWorker) {
+                    const { scenery, landmarks, traps, arena } =
+                        await this.mapGeneratorWorker.generateFullFloor(this.state.floor, this.state.mapSeed, this.state.time, {
+                            theme: this._floorTheme(this.state.floor),
+                            trapType: this._trapType(this.state.floor),
+                            arenaStyle: this._arenaStyle()
+                        });
+
+                    this.state.scenery = scenery;
+                    this.state.landmarks = landmarks;
+                    this.state.traps = traps;
+                    this.state.arena = arena;
+                } else {
+                    this._spawnFloorSync(this.state.floor);
+                }
+                this._finishSpawnFloor();
             }
         } catch (err) {
             console.error('Worker生成下一层失败，回退同步:', err);
-            this._spawnFloorSync(this.state.floor);
+            if (this.state.dungeonWorldMode) {
+                this._spawnDungeonWorldSync(this.state.floor);
+                this._finishSpawnDungeonWorld();
+            } else {
+                this._spawnFloorSync(this.state.floor);
+                this._finishSpawnFloor();
+            }
         }
 
-        this._finishSpawnFloor();
+        // 恢复玩家血量（不恢复满血，保持挑战性）
+        if (this.state.player) {
+            this.state.player.hp = Math.min(playerHp, this.state.player.maxHp);
+            // 保留之前的mods
+            this.state.player.mods = { ...this.state.player.mods, ...playerMods };
+        }
+
         window.saveGame(false);
     }
 
@@ -390,8 +564,13 @@ class CombatSystem {
         this.state.pendingFloorClear = null;
     }
 
-    update(dt) {
-        if (!this.state.running || this.state.state !== 'playing') return;
+    update(dt, input = null) {
+        if (!this.state.running) return;
+
+        const isDungeonWorld = this.state.dungeonWorldMode === true;
+        const isPlaying = this.state.state === 'playing' || this.state.state === 'dungeon_world' || this.state.state === 'clear';
+
+        if (!isPlaying) return;
 
         this.state.time += dt;
         const p = this.state.player;
@@ -429,15 +608,31 @@ class CombatSystem {
             }
         }
 
+        // 视野/迷雾系统更新
+        if (isDungeonWorld) {
+            this._updateVisionSystem(dt);
+        }
+
         this._updatePlayerMovement(dt);
         this._updatePlayerAttack(dt);
-        this._updateMonsters(dt);
+
+        if (isDungeonWorld) {
+            this._updateMonstersDungeonWorld(dt);
+        } else {
+            this._updateMonsters(dt);
+        }
+
         this._updateBullets(dt);
         this._updateTraps(dt);
         this._updateEffects(dt);
         this._updateChests(dt);
         this._updateFloorNpc();
-        this._checkWinCondition();
+
+        if (isDungeonWorld) {
+            this._checkDungeonWorldExit();
+        } else {
+            this._checkWinCondition();
+        }
     }
 
     _updatePlayerMovement(dt) {
@@ -1011,10 +1206,28 @@ class CombatSystem {
         const floorNpc = this.state.floorNpc;
         const p = this.state.player;
         if (!floorNpc || floorNpc.used || !p) return;
-        if (Math.hypot(p.x - floorNpc.x, p.y - floorNpc.y) < 62 && typeof window.onDungeonNpcNearby === 'function') {
-            floorNpc.used = true;
-            window.onDungeonNpcNearby(floorNpc.npc);
+        
+        const dist = Math.hypot(p.x - floorNpc.x, p.y - floorNpc.y);
+        if (dist < 80) {
+            // 记录可交互的NPC，供tryInteractDungeonWorld使用
+            this.state.nearbyDungeonNpc = floorNpc;
+        } else {
+            this.state.nearbyDungeonNpc = null;
         }
+    }
+
+    /**
+     * 秘境世界模式下的交互处理（按E键触发）
+     */
+    tryInteractDungeonWorld() {
+        // 优先处理NPC交互
+        if (this.state.nearbyDungeonNpc && typeof window.onDungeonNpcNearby === 'function') {
+            const npc = this.state.nearbyDungeonNpc;
+            npc.used = true;
+            window.onDungeonNpcNearby(npc.npc);
+            return true;
+        }
+        return false;
     }
 
     _checkCollisions() {
@@ -1152,6 +1365,263 @@ class CombatSystem {
             window.toast('🎉 境界突破：' + window.REALMS[window.G.realm].name, 'gold');
         }
         window.updateHUD();
+    }
+
+    // ============ 秘境世界模式专用方法 ============
+
+    /**
+     * 更新视野/迷雾系统
+     * 玩家和怪物都有有限视野，未探索区域显示迷雾
+     */
+    _updateVisionSystem(dt) {
+        const world = this.state.dungeonWorld;
+        if (!world) return;
+
+        const p = this.state.player;
+        const visionRange = this.state.playerVision || 280;
+        const visionSq = visionRange * visionRange;
+
+        // 初始化探索集合
+        if (!this.state.explored) this.state.explored = new Set();
+
+        // 以网格为单位标记探索区域（每16像素一个格子）
+        const gridSize = 16;
+        const gx = Math.floor(p.x / gridSize);
+        const gy = Math.floor(p.y / gridSize);
+        const visionGrid = Math.ceil(visionRange / gridSize);
+
+        for (let dx = -visionGrid; dx <= visionGrid; dx++) {
+            for (let dy = -visionGrid; dy <= visionGrid; dy++) {
+                const distSq = dx * dx + dy * dy;
+                if (distSq <= visionGrid * visionGrid) {
+                    const key = (gx + dx) + ',' + (gy + dy);
+                    this.state.explored.add(key);
+                }
+            }
+        }
+
+        // 怪物视野：如果怪物在玩家视野内，玩家能看到怪物
+        // 怪物也有自己的视野，用于追踪玩家
+        for (const m of this.state.monsters) {
+            if (m.hp <= 0) continue;
+            const dx = m.x - p.x;
+            const dy = m.y - p.y;
+            const distSq = dx * dx + dy * dy;
+            const monsterVision = m.vision || 200;
+            m.inPlayerVision = distSq <= visionSq;
+            m.canSeePlayer = distSq <= monsterVision * monsterVision;
+
+            // 记录最后看到玩家的位置
+            if (m.canSeePlayer) {
+                m.lastSeenPlayer = { x: p.x, y: p.y, time: this.state.time };
+            }
+        }
+    }
+
+    /**
+     * 秘境世界模式下的怪物AI更新
+     * 怪物有限视野，只有看到玩家才会追击
+     */
+    _updateMonstersDungeonWorld(dt) {
+        const p = this.state.player;
+        const world = this.state.dungeonWorld;
+        if (!world || !p) return;
+
+        for (const m of this.state.monsters) {
+            if (m.hp <= 0) continue;
+
+            // 状态机：wander(游荡) -> chase(追击) -> attack(攻击) -> return(返回)
+            const dx = p.x - m.x;
+            const dy = p.y - m.y;
+            const dist = Math.hypot(dx, dy) || 1;
+            const monsterVision = m.vision || 200;
+
+            // 更新定时器
+            if (m.atkCd > 0) m.atkCd -= dt;
+            if (m.stunCd > 0) m.stunCd -= dt;
+            if (m.shootTimer > 0) m.shootTimer -= dt;
+            if (m.teleportCd > 0) m.teleportCd -= dt;
+            if (m.summonTimer > 0) m.summonTimer -= dt;
+
+            // 眩晕状态
+            if (m.stunCd > 0) continue;
+
+            // 根据状态执行行为
+            switch (m.state) {
+                case 'wander': {
+                    // 在出生点附近随机游荡
+                    if (!m.wanderTimer || m.wanderTimer <= 0) {
+                        m.wanderTimer = 2 + Math.random() * 4;
+                        const angle = Math.random() * Math.PI * 2;
+                        const range = 80 + Math.random() * 120;
+                        m.wanderTarget = {
+                            x: MathUtils.clamp(m.homeX + Math.cos(angle) * range, 60, world.width - 60),
+                            y: MathUtils.clamp(m.homeY + Math.sin(angle) * range, 60, world.height - 60)
+                        };
+                    }
+                    m.wanderTimer -= dt;
+
+                    const wdx = m.wanderTarget.x - m.x;
+                    const wdy = m.wanderTarget.y - m.y;
+                    const wdist = Math.hypot(wdx, wdy) || 1;
+                    if (wdist > 10) {
+                        m.x += (wdx / wdist) * m.speed * 40 * dt;
+                        m.y += (wdy / wdist) * m.speed * 40 * dt;
+                        m.facing = Math.atan2(wdy, wdx);
+                    }
+
+                    // 发现玩家 -> 切换追击
+                    if (m.canSeePlayer) {
+                        m.state = 'chase';
+                        m.target = { x: p.x, y: p.y };
+                    }
+                    break;
+                }
+
+                case 'chase': {
+                    // 追击玩家
+                    if (dist > m.r + p.r + 20) {
+                        // 远距离：移动向玩家
+                        m.x += (dx / dist) * m.speed * 50 * dt;
+                        m.y += (dy / dist) * m.speed * 50 * dt;
+                        m.facing = Math.atan2(dy, dx);
+                    } else {
+                        // 接近玩家：进入攻击状态
+                        m.state = 'attack';
+                    }
+
+                    // 失去视野 -> 尝试走向最后看到的位置
+                    if (!m.canSeePlayer && m.lastSeenPlayer) {
+                        const ldx = m.lastSeenPlayer.x - m.x;
+                        const ldy = m.lastSeenPlayer.y - m.y;
+                        const ldist = Math.hypot(ldx, ldy) || 1;
+                        if (ldist > 20) {
+                            m.x += (ldx / ldist) * m.speed * 40 * dt;
+                            m.y += (ldy / ldist) * m.speed * 40 * dt;
+                        } else {
+                            // 到达最后位置仍未找到 -> 返回游荡
+                            m.state = 'return';
+                        }
+                    }
+
+                    // 远程攻击逻辑
+                    if (m.ranged && m.shootTimer <= 0 && dist <= (m.shootRange || 250)) {
+                        this._monsterShoot(m, p);
+                        m.shootTimer = m.shootCd || 2.5;
+                    }
+                    break;
+                }
+
+                case 'attack': {
+                    // 近战攻击
+                    if (dist <= m.r + p.r + 10 && m.atkCd <= 0) {
+                        this.hurtPlayer(m.atk);
+                        m.atkCd = 1.2 / (m.speed || 1);
+                        this.state.effects.push({ type: 'slash', x: m.x, y: m.y, angle: m.facing, color: m.tint, t: 0, life: 0.25 });
+                    }
+
+                    // 如果玩家跑远了 -> 回到追击
+                    if (dist > m.r + p.r + 40) {
+                        m.state = 'chase';
+                    }
+                    break;
+                }
+
+                case 'return': {
+                    // 返回出生点
+                    const rdx = m.homeX - m.x;
+                    const rdy = m.homeY - m.y;
+                    const rdist = Math.hypot(rdx, rdy) || 1;
+                    if (rdist > 20) {
+                        m.x += (rdx / rdist) * m.speed * 40 * dt;
+                        m.y += (rdy / rdist) * m.speed * 40 * dt;
+                        m.facing = Math.atan2(rdy, rdx);
+                    } else {
+                        m.state = 'wander';
+                        m.wanderTimer = 0;
+                    }
+                    break;
+                }
+            }
+
+            // 特殊能力
+            if (m.charge && m.state === 'chase' && dist > 200 && dist < 400 && m.atkCd <= 0) {
+                // 冲锋攻击
+                m.chargeVx = (dx / dist) * 300;
+                m.chargeVy = (dy / dist) * 300;
+                m.chargeTime = 0.5;
+                m.atkCd = 2.0;
+            }
+
+            if (m.blink && m.state === 'chase' && dist > 150 && m.atkCd <= 0 && Math.random() < 0.01) {
+                // 闪现到玩家身后
+                const angle = Math.atan2(dy, dx) + Math.PI;
+                m.x = p.x + Math.cos(angle) * 50;
+                m.y = p.y + Math.sin(angle) * 50;
+                m.atkCd = 3.0;
+                this.state.effects.push({ type: 'blink', x: m.x, y: m.y, t: 0, life: 0.3 });
+            }
+
+            if (m.healer && m.shootTimer <= 0) {
+                // 治疗周围怪物
+                for (const other of this.state.monsters) {
+                    if (other.hp > 0 && other !== m && other.hp < other.maxHp) {
+                        const hdist = Math.hypot(other.x - m.x, other.y - m.y);
+                        if (hdist < 200) {
+                            other.hp = Math.min(other.maxHp, other.hp + other.maxHp * 0.15);
+                            this.state.effects.push({ type: 'heal', x: other.x, y: other.y, t: 0, life: 0.5 });
+                        }
+                    }
+                }
+                m.shootTimer = m.shootCd || 4.0;
+            }
+        }
+    }
+
+    /**
+     * 怪物射击
+     */
+    _monsterShoot(monster, target) {
+        const dx = target.x - monster.x;
+        const dy = target.y - monster.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const speed = 220;
+
+        this.state.bullets.push({
+            x: monster.x,
+            y: monster.y,
+            vx: (dx / dist) * speed,
+            vy: (dy / dist) * speed,
+            r: 8,
+            dmg: monster.atk,
+            color: monster.projectileColor || '#ffb86b',
+            fromMonster: true,
+            monsterRef: monster,
+            shouldRemove: false,
+            poison: monster.poison || 0,
+            slow: monster.slow || 0
+        });
+    }
+
+    /**
+     * 检查是否到达秘境出口
+     */
+    _checkDungeonWorldExit() {
+        const p = this.state.player;
+        const world = this.state.dungeonWorld;
+        if (!p || !world || !world.exit) return;
+
+        const dx = p.x - world.exit.x;
+        const dy = p.y - world.exit.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist < 60) {
+            // 到达出口，进入下一层
+            this.state.pendingFloorClear = true;
+            if (typeof window.onDungeonFloorClear === 'function') {
+                window.onDungeonFloorClear(this.state.floor);
+            }
+        }
     }
 }
 

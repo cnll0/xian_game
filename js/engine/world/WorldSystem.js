@@ -187,8 +187,13 @@ class WorldSystem {
             .map(c => ({ creature: c, distance: Math.hypot(p.x - c.x, p.y - c.y) }))
             .sort((a, b) => a.distance - b.distance)[0];
 
-        const npc = nearbyNpc && nearbyNpc.distance < 100 ? nearbyNpc.actor.npc : null;
-        const creature = !npc && nearbyCreature && nearbyCreature.distance < 90 ? nearbyCreature.creature : null;
+        // 记录最近的可交互对象，供 tryInteract 使用
+        this.state.nearbyNpc = nearbyNpc && nearbyNpc.distance < 100 ? nearbyNpc.actor.npc : null;
+        this.state.nearbyCreature = !this.state.nearbyNpc && nearbyCreature && nearbyCreature.distance < 90 ? nearbyCreature.creature : null;
+
+        const storyNode = window.G && window.G.story && window.G.story.node;
+        const location = storyNode && this.storyLocations[storyNode];
+        this.state.nearbyStory = location && Math.hypot(p.x - location.x, p.y - location.y) <= 92 && !this.state.nearbyNpc && !this.state.nearbyCreature ? window.getStoryNode(storyNode) : null;
 
         const interactBtn = document.getElementById('interactBtn');
         const dungeonBtn = document.getElementById('btnDungeon');
@@ -198,37 +203,17 @@ class WorldSystem {
         }
 
         if (interactBtn) {
-            interactBtn.classList.toggle('visible', !!npc || !!creature);
-            if (npc) {
-                interactBtn.innerHTML = '💬 与 ' + npc.name + ' 交谈 <small>E</small>';
-            } else if (creature) {
-                interactBtn.innerHTML = '⚔️ 接近 ' + creature.name + ' <small>E</small>';
+            const hasInteraction = !!this.state.nearbyNpc || !!this.state.nearbyCreature || !!this.state.nearbyStory;
+            interactBtn.classList.toggle('visible', hasInteraction);
+            if (this.state.nearbyNpc) {
+                interactBtn.innerHTML = '💬 与 ' + this.state.nearbyNpc.name + ' 交谈 <small>E</small>';
+            } else if (this.state.nearbyCreature) {
+                interactBtn.innerHTML = '⚔️ 接近 ' + this.state.nearbyCreature.name + ' <small>E</small>';
+            } else if (this.state.nearbyStory) {
+                interactBtn.innerHTML = '📜 触发剧情 <small>E</small>';
             } else {
                 interactBtn.innerHTML = '📜 触发剧情 <small>E</small>';
             }
-        }
-
-        if (npc && this.state.npcPrompted !== npc.id && window.onWorldNpcNearby) {
-            this.state.npcPrompted = npc.id;
-            window.onWorldNpcNearby(npc);
-        } else if (!npc && nearbyNpc && nearbyNpc.distance > 150) {
-            this.state.npcPrompted = null;
-        }
-
-        const storyNode = window.G && window.G.story && window.G.story.node;
-        const location = storyNode && this.storyLocations[storyNode];
-        const nearbyStory = location && Math.hypot(p.x - location.x, p.y - location.y) <= 92 && !npc && !creature;
-
-        if (interactBtn) {
-            interactBtn.classList.toggle('visible', !!npc || !!creature || nearbyStory);
-            if (!npc && !creature && nearbyStory) {
-                interactBtn.innerHTML = '📜 触发剧情 <small>E</small>';
-            }
-        }
-
-        if (nearbyStory && this.state.storyPrompted !== storyNode && window.onWorldStoryNearby) {
-            this.state.storyPrompted = storyNode;
-            window.onWorldStoryNearby(window.getStoryNode(storyNode));
         }
     }
 
@@ -244,37 +229,26 @@ class WorldSystem {
         const p = this.state.player;
         if (!p) return false;
 
-        const nearbyNpc = this.state.actors
-            .map(a => ({ actor: a, distance: Math.hypot(p.x - a.x, p.y - a.y) }))
-            .sort((a, b) => a.distance - b.distance)[0];
-
-        if (nearbyNpc && nearbyNpc.distance < 105 && window.onWorldNpcNearby) {
-            this.state.npcPrompted = nearbyNpc.actor.npc.id;
-            window.onWorldNpcNearby(nearbyNpc.actor.npc);
+        // 优先处理NPC交互
+        if (this.state.nearbyNpc && window.onWorldNpcNearby) {
+            window.onWorldNpcNearby(this.state.nearbyNpc);
             return true;
         }
 
-        const nearbyCreature = this.state.creatures
-            .map(c => ({ creature: c, distance: Math.hypot(p.x - c.x, p.y - c.y) }))
-            .sort((a, b) => a.distance - b.distance)[0];
-
-        if (nearbyCreature && nearbyCreature.distance < 95) {
-            window.toast('⚔️ 遭遇' + nearbyCreature.creature.name + '！', 'bad');
+        // 然后是怪物遭遇战
+        if (this.state.nearbyCreature) {
+            window.toast('⚔️ 遭遇' + this.state.nearbyCreature.name + '！', 'bad');
             const dungeonId = this.state.zone === 'overworld' ? 'qingyun' : this.state.zone;
             window.Engine.startRun(1, false, dungeonId, true);
             return true;
         }
 
-        const storyNode = window.G && window.G.story && window.G.story.node;
-        const location = storyNode && this.storyLocations[storyNode];
-        if (location && Math.hypot(p.x - location.x, p.y - location.y) <= 92) {
-            const node = window.getStoryNode(storyNode);
-            if (node && window.onWorldStoryNearby) {
-                this.state.storyPrompted = node.id;
-                window.onWorldStoryNearby(node);
-                return true;
-            }
+        // 最后是剧情触发
+        if (this.state.nearbyStory && window.onWorldStoryNearby) {
+            window.onWorldStoryNearby(this.state.nearbyStory);
+            return true;
         }
+
         return false;
     }
 }

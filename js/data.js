@@ -225,49 +225,78 @@ const NPCS = [
             { text: '送她一枚回春丹', reply: '多谢道友！这本吐纳心得送你，愿能助你修行。', favor: 18, technique: 'breath_cycle', reward: { maxHp: 8 } },
             { text: '问问附近的路', reply: '沿溪水向北有处古洞，最近常有赤光从里面冒出来。', favor: 5 },
             { text: '告辞，继续赶路', reply: '路上小心，别一个人深入秘境。', favor: 0 }
-        ] },
+        ],
+        // 关系系统扩展
+        relation: { base: 20, thresholds: { ally: 40, friendly: 15, neutral: -10, hostile: -25 } },
+        dungeonBehavior: { qingyun: { allyBuff: { heal: 0.3 }, hostile: { becomeEnemy: true, monsterId: 'cultist' } } },
+        combatStats: { hp: 120, atk: 18, speed: 3.0, skills: ['heal', 'buff'] }
+    },
     { id: 'linyue', name: '林越', title: '游历散修', portrait: 'linyue', x: 160, y: 1910, faction: '散修', attitude: 'neutral', color: '#859fbd', zone: 'overworld',
         greeting: '在下林越，四方游历的散修。修行路上，多一个朋友总好过多一个仇家。',
         choices: [
             { text: '以灵石换取剑诀心得（攻击+2）', reply: '这招青云剑式是我观碑所得，就当结个善缘。', favor: 12, reward: { atk: 2 } },
             { text: '谈谈各处秘境', reply: '赤炎洞克制寒性功法，寒潭深处则常有幽魂出没。', favor: 4 },
             { text: '质疑他的话', reply: '道不同，不必强求。', favor: -12 }
-        ] },
+        ],
+        relation: { base: 0, thresholds: { ally: 35, friendly: 10, neutral: -15, hostile: -30 } },
+        dungeonBehavior: { qingyun: { allyBuff: { atk: 5 }, hostile: { becomeEnemy: true, monsterId: 'ronin' } }, ember: { allyBuff: { cult: 30 }, hostile: { becomeEnemy: true, monsterId: 'fire_cultist' } } },
+        combatStats: { hp: 150, atk: 22, speed: 3.5, skills: ['dash', 'counter'] }
+    },
     { id: 'shenli', name: '沈砺', title: '青云门执事', portrait: 'shenli', x: 1010, y: 1280, faction: '青云门', attitude: 'neutral', color: '#c0a064', zone: 'overworld',
         greeting: '外门执事沈砺。秘境按境界分了几处，莫要为了机缘越阶送命。',
         choices: [
             { text: '请教试炼规矩', reply: '青云外围适合炼气弟子。赤炎洞、寒潭与古墟，须有相应修为再入。', favor: 8 },
             { text: '请求指点剑法（攻击+3）', reply: '看好了，出剑不可只凭蛮力。', favor: 15, reward: { atk: 3 } },
             { text: '抱怨门规繁琐', reply: '不守规矩，便不必再叫我执事。', favor: -20 }
-        ] },
+        ],
+        relation: { base: 5, thresholds: { ally: 50, friendly: 20, neutral: 0, hostile: -20 } },
+        dungeonBehavior: { qingyun: { allyBuff: { shield: 0.25 }, hostile: { becomeEnemy: true, monsterId: 'guardian' } } },
+        combatStats: { hp: 200, atk: 25, speed: 2.5, skills: ['shield', 'parry'] }
+    },
     { id: 'guqinghan', name: '顾清寒', title: '内门剑修', portrait: 'guqinghan', x: 1730, y: 790, faction: '青云门', attitude: 'friendly', color: '#84c7dc', zone: 'overworld',
         greeting: '你就是最近那位新入门的弟子？剑意不错，不过还缺些沉淀。',
         choices: [
             { text: '请她指点身法（速度+0.15）', reply: '脚下别急着追风，先学会听风。', favor: 16, reward: { speed: 0.15 } },
             { text: '谈谈问剑大会', reply: '胜负之外，更重要的是看清自己的剑。', favor: 7 },
             { text: '向她发起挑衅', reply: '若你真想较量，擂台上见。', favor: -24 }
-        ] },
+        ],
+        relation: { base: 25, thresholds: { ally: 45, friendly: 15, neutral: -5, hostile: -20 } },
+        dungeonBehavior: { qingyun: { allyBuff: { speed: 0.3 }, hostile: { becomeEnemy: true, monsterId: 'sword_master' } }, frost: { allyBuff: { crit: 5 }, hostile: { becomeEnemy: true, monsterId: 'ice_sword' } } },
+        combatStats: { hp: 180, atk: 30, speed: 4.0, skills: ['ice_blade', 'dash'] }
+    },
     { id: 'mochen', name: '墨痕', title: '魔道探子', portrait: 'mochen', x: 2360, y: 770, faction: '不明', attitude: 'hostile', color: '#bd6a72', zone: 'ember',
         greeting: '青云门的人？呵，这处秘境可不是你们的后院。',
         choices: [
             { text: '拔剑逼问来意', reply: '今日先放你一马。下次碰面，可就没这么客气了。', favor: -30 },
             { text: '提出暂时合作', reply: '合作？各取所需罢了。别挡我的路。', favor: 10 },
             { text: '保持距离', reply: '算你识相。', favor: 0 }
-        ] },
+        ],
+        relation: { base: -20, thresholds: { ally: 20, friendly: 0, neutral: -15, hostile: -35 } },
+        dungeonBehavior: { ember: { allyBuff: { bloodPrice: { hp: 0.1, atk: 15 } }, hostile: { becomeEnemy: true, monsterId: 'demon_spy' } }, nether: { allyBuff: { speed: 0.5 }, hostile: { becomeEnemy: true, monsterId: 'shadow_assassin' } } },
+        combatStats: { hp: 160, atk: 28, speed: 3.8, skills: ['blink', 'poison'] }
+    },
     { id: 'jichang', name: '姬无常', title: '幽冥古墟访客', portrait: 'jichang', x: 3170, y: 580, faction: '幽冥宗', attitude: 'hostile', color: '#a88bd0', zone: 'nether',
         greeting: '生人也敢入古墟？这里埋着的，可不止是尸骨。',
         choices: [
             { text: '询问镇魂诀的来历', reply: '你倒识货。若能从古墟活着出来，再谈传承。', favor: 8 },
             { text: '强行索要传承', reply: '狂妄之徒，休想染指幽冥遗物。', favor: -35 },
             { text: '礼貌行礼后离开', reply: '至少你还懂些礼数。', favor: 4 }
-        ] },
+        ],
+        relation: { base: -15, thresholds: { ally: 25, friendly: 5, neutral: -10, hostile: -30 } },
+        dungeonBehavior: { nether: { allyBuff: { riskCult: 50 }, hostile: { becomeEnemy: true, monsterId: 'soul_reaper' } } },
+        combatStats: { hp: 220, atk: 26, speed: 3.2, skills: ['soul_drain', 'summon'] }
+    },
     { id: 'hanxing', name: '秦寒星', title: '寒潭守境人', portrait: 'hanxing', x: 3010, y: 1030, faction: '守境一脉', color: '#78b9d0', zone: 'frost',
         greeting: '潭底寒气会封住经脉。若无冰系根基，切莫贪图深处的灵物。',
         choices: [
             { text: '请教寒潭行走之法（暴击+1%）', reply: '记住，寒意最盛时反而是灵力最稳的时候。', favor: 12, reward: { crit: 1 } },
             { text: '询问古墟传闻', reply: '幽冥宗的人在北面的废墟出没，最好不要招惹。', favor: 5 },
             { text: '表示不信', reply: '等你在潭中冻僵，自然会信。', favor: -10 }
-        ] }
+        ],
+        relation: { base: 10, thresholds: { ally: 40, friendly: 15, neutral: -5, hostile: -25 } },
+        dungeonBehavior: { frost: { allyBuff: { shield: 0.3, heal: 0.2 }, hostile: { becomeEnemy: true, monsterId: 'frost_guardian' } } },
+        combatStats: { hp: 250, atk: 24, speed: 2.8, skills: ['ice_wall', 'frost_nova'] }
+    }
 ];
 
 const DUNGEON_NPC_EVENTS = {

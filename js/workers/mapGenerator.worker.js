@@ -276,6 +276,277 @@ function generateArenaLayout(floor, mapSeed, W, H, arenaStyle) {
     }));
 }
 
+// ============ 大型秘境世界生成 ============
+const DUNGEON_WORLD_W = 2400;
+const DUNGEON_WORLD_H = 1600;
+const DUNGEON_PAD = 40;
+
+const DUNGEON_LANDMARK_OPTIONS = {
+    forest: ['ancient-tree', 'shrine', 'pool'],
+    ruins: ['broken-wall', 'sunken-court', 'obelisk', 'statue'],
+    bones: ['bone-pit', 'rib-cage', 'bone-pile', 'skull-altar'],
+    mine: ['crystal-vein', 'ore-field', 'collapsed-shaft', 'mine-cart'],
+    bamboo: ['bamboo-grove', 'stream', 'fallen-log', 'tea-house'],
+    lava: ['lava-rift', 'basalt-island', 'ember-crater', 'forge'],
+    temple: ['sunken-court', 'obelisk', 'broken-wall', 'altar'],
+    ice: ['frozen-pond', 'ice-spines', 'stream', 'ice-cave'],
+    altar: ['ritual-ring', 'obelisk', 'basalt-island', 'summoning-circle']
+};
+
+const DUNGEON_LANDMARK_COLORS = {
+    forest: ['#43654a', '#718255'], ruins: ['#706477', '#8f816f'],
+    bones: ['#887c67', '#c1b28d'], mine: ['#398c7a', '#a77f50'],
+    bamboo: ['#47704b', '#83a35b'], lava: ['#763e35', '#de6843'],
+    temple: ['#85704d', '#baa36c'], ice: ['#5b9fb2', '#b5e2e6'],
+    altar: ['#6a467b', '#bc79d5']
+};
+
+const DUNGEON_SOLID_LANDMARK_TYPES = ['ancient-tree', 'fallen-log', 'broken-wall', 'obelisk',
+    'bone-pit', 'rib-cage', 'bone-pile', 'crystal-vein',
+    'collapsed-shaft', 'bamboo-grove', 'basalt-island', 'ice-spines',
+    'statue', 'skull-altar', 'mine-cart', 'tea-house', 'forge',
+    'ice-cave', 'summoning-circle', 'altar', 'shrine'];
+
+const DUNGEON_TRAP_DETAILS = {
+    roots: { name: '缠灵藤', color: '#83d378', damage: 6, damageRatio: 0.06, slow: 1.3 },
+    blade: { name: '回风双刃', color: '#d9b16b', damage: 10, damageRatio: 0.1, knockback: 24 },
+    sinkhole: { name: '流沙陷环', color: '#c79a65', damage: 11, damageRatio: 0.1, slow: 0.6 },
+    bone: { name: '白骨潮汐', color: '#e2d1ae', damage: 11, damageRatio: 0.11, knockback: 18 },
+    crystal: { name: '灵晶飞爆', color: '#75e8d2', damage: 9, damageRatio: 0.09 },
+    miasma: { name: '腐心瘴云', color: '#91c46d', damage: 7, damageRatio: 0.06, poison: 2.8 },
+    fire: { name: '地火喷口', color: '#ff743e', damage: 12, damageRatio: 0.1, burn: 2, burnDamage: 0.022 },
+    rune: { name: '镇魂禁攻阵', color: '#d4a0ff', damage: 9, damageRatio: 0.08, attackSlow: 2.5 },
+    ice: { name: '寒潭滑裂', color: '#9defff', damage: 8, damageRatio: 0.08, slide: 1.3 },
+    altar: { name: '蟒巢聚灵坛', color: '#e692ff', damage: 13, damageRatio: 0.12 }
+};
+
+function generateDungeonWorld(dungeon, floor, mapSeed) {
+    // 地形装饰（比普通地板更密集）
+    const decor = generateWorldDecor(600);
+
+    // 地标（秘境特有建筑/遗迹）
+    const landmarks = generateDungeonWorldLandmarks(dungeon, floor, mapSeed, DUNGEON_WORLD_W, DUNGEON_WORLD_H);
+
+    // 陷阱分布（秘境特有陷阱）
+    const traps = generateDungeonWorldTraps(dungeon, floor, mapSeed, DUNGEON_WORLD_W, DUNGEON_WORLD_H);
+
+    // 怪物分布（按层数和秘境类型）
+    const creatures = generateDungeonWorldCreatures(dungeon, floor, mapSeed, DUNGEON_WORLD_W, DUNGEON_WORLD_H);
+
+    // NPC（秘境内随机遇到的NPC）
+    const npcs = generateDungeonWorldNPCs(dungeon, floor, mapSeed, DUNGEON_WORLD_W, DUNGEON_WORLD_H);
+
+    // 入口/出口位置
+    const entry = { x: DUNGEON_WORLD_W / 2, y: DUNGEON_WORLD_H - 80 };
+    const exit = { x: DUNGEON_WORLD_W / 2, y: 80 };
+
+    return {
+        width: DUNGEON_WORLD_W,
+        height: DUNGEON_WORLD_H,
+        decor,
+        landmarks,
+        traps,
+        creatures,
+        npcs,
+        entry,
+        exit,
+        floorTheme: dungeon.floorThemes ? dungeon.floorThemes[Math.min(floor - 1, dungeon.floorThemes.length - 1)] : 'ruins',
+        ambient: dungeon.ambient || 'leaves'
+    };
+}
+
+function generateWorldDecor(count = 600) {
+    const random = makeRandom(74291);
+    const decor = [];
+    for (let i = 0; i < count; i++) {
+        decor.push({
+            x: 55 + random() * (DUNGEON_WORLD_W - 110),
+            y: 55 + random() * (DUNGEON_WORLD_H - 110),
+            size: 8 + random() * 17,
+            kind: random() > 0.1 ? 'tree' : 'rock'
+        });
+    }
+    return decor;
+}
+
+function generateDungeonWorldLandmarks(dungeon, floor, mapSeed, W, H) {
+    const seed = (mapSeed + floor * 104729) % 2147483647;
+    const random = makeRandom(seed);
+
+    const theme = dungeon.floorThemes ? dungeon.floorThemes[Math.min(floor - 1, dungeon.floorThemes.length - 1)] : 'ruins';
+    const options = DUNGEON_LANDMARK_OPTIONS[theme] || DUNGEON_LANDMARK_OPTIONS.ruins;
+    const colors = DUNGEON_LANDMARK_COLORS[theme] || DUNGEON_LANDMARK_COLORS.ruins;
+
+    const landmarks = [];
+    const kinds = options;
+    const count = 4 + Math.floor(random() * 3);
+
+    for (let i = 0; i < count; i++) {
+        const type = kinds[Math.floor(random() * kinds.length)];
+        const w = 80 + random() * 100;
+        const h = 50 + random() * 70;
+        const clearance = Math.max(w, h) * 0.6 + 50;
+
+        const entry = { x: W / 2, y: H - 80 };
+        const exit = { x: W / 2, y: 80 };
+
+        let x, y, tries = 0;
+        const isAvailable = (cx, cy) =>
+            Math.hypot(cx - entry.x, cy - entry.y) >= clearance + 60 &&
+            Math.hypot(cx - exit.x, cy - exit.y) >= clearance + 60 &&
+            landmarks.every(item => Math.hypot(cx - item.x, cy - item.y) >=
+                Math.max(item.w, item.h) * 0.6 + clearance);
+
+        do {
+            x = W * (0.15 + random() * 0.7);
+            y = H * (0.15 + random() * 0.7);
+            tries++;
+        } while (tries < 50 && !isAvailable(x, y));
+
+        if (!isAvailable(x, y)) continue;
+
+        landmarks.push({
+            type,
+            solid: DUNGEON_SOLID_LANDMARK_TYPES.includes(type),
+            x, y, w, h,
+            turn: random() * Math.PI * 2,
+            color: colors[Math.floor(random() * colors.length)],
+            phase: random() * Math.PI * 2
+        });
+    }
+    return landmarks;
+}
+
+function generateDungeonWorldTraps(dungeon, floor, mapSeed, W, H) {
+    const trapSequence = dungeon.trapSequence || ['rune'];
+    const type = trapSequence[Math.min(floor - 1, trapSequence.length - 1)];
+    const trapCount = 6 + Math.floor(floor / 2);
+    const traps = [];
+    const seed = (mapSeed + floor * 31337) % 2147483647;
+    const random = makeRandom(seed);
+
+    const details = DUNGEON_TRAP_DETAILS[type];
+    let attempts = 0;
+
+    while (traps.length < trapCount && attempts < 100) {
+        attempts++;
+        const x = 60 + random() * (W - 120);
+        const y = 60 + random() * (H - 120);
+
+        // 避开入口出口
+        if (Math.hypot(x - W / 2, y - (H - 80)) < 100) continue;
+        if (Math.hypot(x - W / 2, y - 80) < 100) continue;
+
+        // 避开其他陷阱
+        if (traps.some(other => Math.hypot(x - other.x, y - other.y) < 90)) continue;
+
+        const trap = Object.assign({}, { x, y }, details, {
+            id: `dungeon-${floor}-${traps.length}`,
+            type,
+            radius: 48,
+            period: 4.0 + random() * 1.0,
+            warning: 1.3 + random() * 0.4,
+            activeDuration: 1.5 + random() * 0.5,
+            phase: random() * Math.PI * 2,
+            playerCycle: -1,
+            playerNextHit: 0
+        });
+        traps.push(trap);
+    }
+    return traps;
+}
+
+function generateDungeonWorldCreatures(dungeon, floor, mapSeed, W, H) {
+    const random = makeRandom(135791 + dungeon.id.length * 817 + floor * 997);
+    const pool = dungeon.floorPool[Math.min(floor - 1, dungeon.floorPool.length - 1)] || ['wolf'];
+    
+    // 模拟 MONSTERS 数据（Worker中无法访问window.MONSTERS）
+    const MONSTER_DATA = {
+        wolf: { id: 'wolf', name: '灰风狼', img: 'wolf', hp: 30, atk: 8, speed: 2.1, r: 16, draw: 48, vision: 180 },
+        bat: { id: 'bat', name: '血翼蝠', img: 'bat', hp: 18, atk: 6, speed: 3.0, r: 12, draw: 36, vision: 200 },
+        spider: { id: 'spider', name: '毒玉蛛', img: 'spider', hp: 45, atk: 11, speed: 1.6, r: 18, draw: 52, vision: 220, ranged: true, keepDistance: true, shootRange: 210, shootCd: 3.2, projectileColor: '#a8dc75', poison: 2.2 },
+        skeleton: { id: 'skeleton', name: '骷髅弓手', img: 'skeleton', hp: 35, atk: 10, speed: 1.2, r: 16, draw: 48, vision: 240, ranged: true, shootRange: 260, shootCd: 2.2 },
+        brute: { id: 'brute', name: '赤甲魈', img: 'brute', hp: 85, atk: 15, speed: 1.15, r: 22, draw: 60, vision: 160 },
+        charger: { id: 'charger', name: '裂岩犀', img: 'brute', hp: 92, atk: 17, speed: 1.05, r: 23, draw: 64, vision: 150, charge: true, tint: '#e88a50' },
+        shaman: { id: 'shaman', name: '枯木巫祝', img: 'skeleton', hp: 58, atk: 8, speed: 0.85, r: 17, draw: 52, vision: 200, ranged: true, shootRange: 0, shootCd: 4.2, healer: true, tint: '#77d68a' },
+        wraith: { id: 'wraith', name: '幽冥游魂', img: 'bat', hp: 48, atk: 13, speed: 1.75, r: 15, draw: 48, vision: 180, blink: true, tint: '#b694ed' },
+        slime: { id: 'slime', name: '吞灵软泥', img: 'spider', hp: 72, atk: 10, speed: 0.9, r: 21, draw: 58, vision: 140, splitOnDeath: true, tint: '#66d8c0' },
+        slimelet: { id: 'slimelet', name: '软泥幼体', img: 'bat', hp: 18, atk: 5, speed: 2.5, r: 10, draw: 30, vision: 120, tint: '#9be8bd' },
+        frostwitch: { id: 'frostwitch', name: '寒魄妖姬', img: 'skeleton', hp: 62, atk: 12, speed: 1.0, r: 17, draw: 54, vision: 230, ranged: true, keepDistance: true, shootRange: 280, shootCd: 2.8, projectileColor: '#8cecff', slow: 1.4, tint: '#8cecff' },
+        elite: { id: 'elite', name: '魔将·血煞', img: 'elite', hp: 220, atk: 22, speed: 1.7, r: 26, draw: 72, vision: 250, elite: true },
+        boss: { id: 'boss', name: '赤鳞蟒', img: 'boss', hp: 650, atk: 20, speed: 1.35, r: 42, draw: 120, vision: 300, boss: true }
+    };
+
+    const validPool = pool.filter(id => MONSTER_DATA[id] && !MONSTER_DATA[id].boss);
+    if (validPool.length === 0) validPool.push('wolf');
+
+    const baseCount = dungeon.id === 'qingyun' ? 8 : dungeon.id === 'nether' ? 14 : 10;
+    const count = baseCount + Math.floor(floor * 1.2);
+    const creatures = [];
+
+    for (let i = 0; i < count; i++) {
+        const monsterId = validPool[Math.floor(random() * validPool.length)];
+        const monster = MONSTER_DATA[monsterId];
+        if (!monster) continue;
+
+        const angle = random() * Math.PI * 2;
+        const minDist = 180;
+        const maxDist = Math.min(W, H) * 0.4;
+        const distance = minDist + random() * (maxDist - minDist);
+        const centerX = W / 2;
+        const centerY = H / 2;
+
+        let x = centerX + Math.cos(angle) * distance;
+        let y = centerY + Math.sin(angle) * distance;
+
+        x = Math.max(60, Math.min(W - 60, x));
+        y = Math.max(60, Math.min(H - 60, y));
+
+        const hpMul = dungeon.hpScale * (1 + (floor - 1) * 0.25);
+        const atkMul = dungeon.atkScale * (1 + (floor - 1) * 0.12);
+
+        creatures.push({
+            id: monster.id,
+            name: monster.name,
+            img: monster.img,
+            x, y,
+            homeX: x,
+            homeY: y,
+            hp: Math.round(monster.hp * hpMul),
+            maxHp: Math.round(monster.hp * hpMul),
+            atk: Math.round(monster.atk * atkMul),
+            speed: monster.speed * (0.9 + random() * 0.2),
+            r: monster.r,
+            draw: monster.draw,
+            tint: monster.tint || '#a9aa83',
+            vision: monster.vision || 200,
+            phase: random() * Math.PI * 2,
+            bob: random() * Math.PI * 2,
+            state: 'wander',
+            target: null,
+            lastSeenPlayer: null,
+            ranged: !!monster.ranged,
+            keepDistance: !!monster.keepDistance,
+            shootRange: monster.shootRange || 0,
+            shootCd: monster.shootCd || 2.5,
+            shootTimer: random() * 2,
+            projectileColor: monster.projectileColor || '#ffb86b',
+            healer: !!monster.healer,
+            charge: !!monster.charge,
+            blink: !!monster.blink,
+            elite: !!monster.elite,
+            boss: !!monster.boss
+        });
+    }
+    return creatures;
+}
+
+function generateDungeonWorldNPCs(dungeon, floor, mapSeed, W, H) {
+    // Worker中无法访问window.DUNGEON_NPC_EVENTS，返回空数组
+    // 主线程会补充NPC数据
+    return [];
+}
+
 // 消息处理
 self.onmessage = function(e) {
     const { type, payload, requestId } = e.data;
@@ -310,13 +581,20 @@ self.onmessage = function(e) {
             break;
         }
         case 'GENERATE_FULL_FLOOR': {
-            // 一次性生成整层所有数据
+            // 一次性生成整层所有数据（旧竞技场模式）
             const { floor, mapSeed, time, theme, trapType, arenaStyle } = payload;
             const scenery = generateFloorScenery(floor, mapSeed, W, H, PAD, theme);
             const landmarks = generateFloorLandmarks(floor, mapSeed, W, H, PAD, theme);
             const traps = generateFloorTraps(floor, mapSeed, time, W, H, PAD, trapType);
             const arena = generateArenaLayout(floor, mapSeed, W, H, arenaStyle);
             self.postMessage({ type: 'FULL_FLOOR_READY', requestId, floor, scenery, landmarks, traps, arena });
+            break;
+        }
+        case 'GENERATE_DUNGEON_WORLD': {
+            // 生成大型秘境世界地图
+            const { dungeon, floor, mapSeed } = payload;
+            const world = generateDungeonWorld(dungeon, floor, mapSeed);
+            self.postMessage({ type: 'DUNGEON_WORLD_READY', requestId, floor, world });
             break;
         }
     }

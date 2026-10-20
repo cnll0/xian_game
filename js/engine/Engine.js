@@ -258,10 +258,12 @@ class Engine {
     }
 
     _pauseForNpcDialog() {
-        if (this.gameState.runtime.state !== 'world' &&
-            this.gameState.runtime.state !== 'playing' &&
-            this.gameState.runtime.state !== 'clear') return;
-        this.gameState.runtime.npcPausedState = this.gameState.runtime.state;
+        const state = this.gameState.runtime.state;
+        if (state !== 'world' &&
+            state !== 'playing' &&
+            state !== 'clear' &&
+            state !== 'dungeon_world') return;
+        this.gameState.runtime.npcPausedState = state;
         this.gameState.runtime.state = 'dialog';
     }
 
@@ -537,6 +539,8 @@ class Engine {
                 this.worldSystem.update(dt, input);
             } else if (state === 'playing' || state === 'clear') {
                 this.combatSystem.update(dt);
+            } else if (state === 'dungeon_world') {
+                this.combatSystem.update(dt, input);
             }
             this._hudTimer = (this._hudTimer || 0) + dt;
             if (this._hudTimer >= 0.1) {
@@ -545,19 +549,28 @@ class Engine {
             }
         }
 
-        if (input.interactPressed && this.gameState.runtime.running && state === 'world') {
-            this.worldSystem.tryInteract();
+        if (input.interactPressed && this.gameState.runtime.running) {
+            if (state === 'world') {
+                this.worldSystem.tryInteract();
+            } else if (state === 'dungeon_world') {
+                this.combatSystem.tryInteractDungeonWorld();
+            }
         }
 
         const worldScene = state === 'world' ||
             (state === 'dialog' && this.gameState.runtime.npcPausedState === 'world');
+        const dungeonWorldScene = state === 'dungeon_world' ||
+            (state === 'dialog' && this.gameState.runtime.npcPausedState === 'dungeon_world');
         const worldHint = document.getElementById('worldHint');
-        if (worldHint) worldHint.style.display = worldScene ? 'block' : 'none';
+        if (worldHint) worldHint.style.display = (worldScene || dungeonWorldScene) ? 'block' : 'none';
 
         if (state === 'loading') {
             this._drawLoadingScreen();
         } else if (worldScene) {
             window.WorldRenderer.render(this.ctx, this.gameState);
+            window.UIRenderer.render(this.ctx, this.gameState);
+        } else if (dungeonWorldScene) {
+            window.DungeonWorldRenderer.render(this.ctx, this.gameState);
             window.UIRenderer.render(this.ctx, this.gameState);
         } else {
             this.renderer.render(this.gameState, input);

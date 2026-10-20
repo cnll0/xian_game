@@ -160,6 +160,17 @@ class MapGeneratorWorker {
     }
 
     /**
+     * 生成大型秘境世界地图
+     * @param {Object} dungeon - 秘境配置
+     * @param {number} floor - 当前层数
+     * @param {number} mapSeed - 地图种子
+     * @returns {Promise<Object>} 完整的秘境世界数据
+     */
+    async generateDungeonWorld(dungeon, floor, mapSeed) {
+        return this._request('GENERATE_DUNGEON_WORLD', { dungeon, floor, mapSeed });
+    }
+
+    /**
      * 终止Worker
      */
     terminate() {
