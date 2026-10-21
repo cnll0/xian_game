@@ -1,0 +1,591 @@
+# 修仙传说 2D · 工程记忆（memory.readme）
+
+> 给下一次接手这个项目的人 / AI Agent。
+> 先读这一页，再动代码。最后更新：2026-10-21。
+
+---
+
+## 0. 一分钟接手
+
+- 这是**原生 HTML/CSS/JS** 的 2D 动作修仙游戏，没有打包步骤。
+- 正式入口是 `index.html`，按固定顺序加载 `js/engine/**` 模块；`legacy.html` 是旧单文件引擎的回退入口。
+- 不要在 `file://` 下直接双击打开，用本地 HTTP 服务器：
+  ```bash
+  python -m http.server 8081
+  ```
+- 改完至少跑：
+  ```bash
+  node --check <改动的 js 文件>
+  npm test
+  npm run smoke
+  ```
+- 如果改了界面/秘境/战斗表现，**必须看截图或实际玩一局**。静态检查通过不代表游戏是对的。
+- 这个仓库经历过“重构到一半”的历史；接手先 `git status` / `git diff`，不要假设工作区干净，也不要在没看代码前相信提交信息。
+
+---
+
+## 1. 项目是什么
+
+- 2D 动作修仙：大地图探索、章节剧情、秘境、实时战斗、机缘卡牌、NPC、功法、境界成长。
+- 4 个秘境：青云外围、赤炎洞窟、寒潭秘境、幽冥古墟。
+- 数据全部在 `js/data.js`：境界、出身、秘境、怪物、卡牌、功法、NPC、剧情、成就。
+- 存档在 `localStorage`；本地密码用 PBKDF2，不上传服务器。
+- 目标平台：桌面浏览器 + 移动端触摸摇杆。
+
+---
+
+## 2. 运行与验证
+
+### 本地运行
+
+```bash
+cd xian_game
+python -m http.server 8081
+# http://localhost:8081/
+```
+
+Windows 也可以双击 `启动游戏.bat`（内部用 `%~dp0` 定位目录）。
+
+### 验证矩阵
+
+| 命令 | 作用 | 当前预期 |
+| --- | --- | --- |
+| `node --check <file.js>` | 单文件语法 | 0 错误 |
+| `npm test` | 零依赖单元测试（Node 内置 test runner） | 8/8 通过 |
+| `npm run test:jest` | JSdom 单元/集成测试 | 5 套、75/75 通过 |
+| `npm run smoke` | 无头浏览器全链路冒烟 | 输出“冒烟测试通过” |
+| `npm run typecheck` | `tsc --noEmit`（`checkJs:false`） | 通过 |
+| `npm run lint` | ESLint | 0 errors；历史风格 warning 仍存在 |
+
+### 浏览器冒烟测试
+
+```bash
+npm run smoke
+```
+
+`scripts/smoke.mjs` 会：
+
+1. 自己起一个临时静态服务器（不需要先开 8081）；
+2. 找到本机 Chrome/Edge（也可用 `CHROME_PATH` 指定）；
+3. 加载 `tests/smoke.html`；
+4. 用**手动驱动的 rAF**推进帧，避免无头浏览器 rAF 时间戳不稳定；
+5. 检查：Engine 初始化、大地图移动、进入秘境、刷怪、攻击扣血、清层、三列卡牌 3/0/3 或 3/1/3、确认选卡、NPC 对话、图鉴、成就、存档、`errors=[]`。
+
+### 截图/视觉检查
+
+```bash
+# 先开本地服务器，然后：
+chrome --headless=new --no-sandbox --disable-gpu \
+  --window-size=1200,1000 --virtual-time-budget=9000 \
+  --screenshot=check.png "http://127.0.0.1:8081/tests/smoke.html?visual=cards"
+```
+
+可用 `?visual=1`（世界）、`?visual=dungeon`（秘境）、`?visual=cards`（卡牌）、`?visual=combat`（战斗特效）。
+
+### PowerShell / 环境坑
+
+- 用 `npm.cmd`，不要用 `npm`（本机禁止 `npm.ps1` 脚本）。
+- 不要用 `Get-Content | Set-Content` 读写中文源码；容易按 ANSI 解码成乱码。用 .NET：
+  ```powershell
+  [System.IO.File]::ReadAllText($path, (New-Object System.Text.UTF8Encoding($false)))
+  [System.IO.File]::WriteAllText($path, $text, (New-Object System.Text.UTF8Encoding($false)))
+  ```
+- PowerShell 没有 Bash heredoc；别写 `python - <<'PY'`。
+- `npm run test:jest 2>&1` 在 Windows PowerShell 下可能因为 stderr 被当成错误而显示 `[exit code: 1]`，但 Jest 实际是 0；用 `cmd /c "... & echo %ERRORLEVEL%"` 确认。
+- 不要用 `cat`/`find`/`grep` 命令替代工具；读文件用 read，找文件用 glob，搜内容用 grep。
+
+---
+
+## 3. 目录与职责
+
+```text
+index.html                 模块化入口（按顺序加载 16 个 engine 脚本）
+legacy.html                旧单文件引擎回退入口
+js/
+  data.js                  所有数据（约 75KB）
+  main.js                  登录、HUD、菜单、覆盖层、图鉴
+  save.js                  localStorage 存档 + PBKDF2 本地密码
+  story.js                 剧情对话、NPC 对话、秘境选择、结算
+  engine.js                旧版 190KB 单文件引擎（legacy.html 使用）
+  engine/
+    Engine.js              生命周期、主循环、静态 API、加载页
+    compat.js              少量运行时辅助函数（floatText/gainCultivation/showDualCardChoice）
+    core/
+      GameState.js         runtime 状态 + 常量 + assets
+      EventBus.js          on/off/emit/once（目前用得很少）
+      InputManager.js      键盘/鼠标/触摸摇杆
+    systems/
+      CombatSystem.js      战斗、秘境世界、怪物 AI、陷阱、特效、卡牌触发
+      CardSystem.js        三列抽卡/确认/卡牌结算/进化
+    world/
+      WorldSystem.js       大地图（overworld / 秘境外围区域）
+      NPCManager.js        大地图/秘境 NPC 对话（NPCManager 与 story 有历史重复）
+      MapGenerator.js      同步地图生成 + 秘境大地图生成
+      MapGeneratorWorker.js Worker 封装
+    render/
+      WorldRenderer.js     大地图渲染
+      Renderer.js          旧竞技场渲染 + DungeonWorldRenderer + UIRenderer
+    utils/
+      MathUtils.js         clamp/lerp/角度/SeededRandom
+      AssetLoader.js       图片加载/缓存
+      ObjectPool.js        对象池（目前战斗里基本没用）
+      AudioManager.js      WebAudio 合成音效
+  workers/
+    mapGenerator.worker.js 地图生成 Worker（与 MapGenerator 算法有历史重复）
+  __tests__/               Jest 测试
+tests/
+  unit.test.mjs            零依赖单元测试
+  smoke.html               冒烟页面（内含 audit 脚本）
+scripts/
+  smoke.mjs                冒烟测试运行器
+css/style.css              全部样式
+assets/                    运行时 WebP/PNG/SVG + raw 源图
+```
+
+**重要**：`js/engine.js` 与 `js/engine/**` 是两套引擎。正式入口只用模块化；不要在两套里同时修同一个玩法，否则必然漂移。旧引擎只用于回退。
+
+---
+
+## 4. 启动链路
+
+```text
+index.html
+  → 加载 engine 模块（先类定义，后 data/save/story/main）
+  → DOMContentLoaded: main.init()
+    → Engine.init(canvas)
+      → 加载 assets
+      → 初始化 InputManager
+      → 初始化 MapGeneratorWorker（失败则同步回退）
+      → 构造 WorldSystem / CombatSystem / CardSystem / NPCManager / Renderer
+      → Engine.instance = this; 保持 window.Engine 为类
+    → 显示登录
+  → 游客 / 登录
+    → newGame(origin) 或 applySaveData()
+      → Engine.startWorld(true) / startWorld()
+        → WorldSystem 进入 overworld
+        → Engine.start() 启动 rAF
+```
+
+### 主循环状态
+
+`Engine.loop(ts)` 每帧：
+
+```text
+input = movement + mouse + attackPressed + interactPressed
+state = runtime.state
+if running:
+  world        → WorldSystem.update
+  playing      → CombatSystem.update（旧竞技场兼容）
+  clear        → CombatSystem.update
+  dungeon_world→ CombatSystem.update(dt, input)
+  then HUD throttle 100ms
+if interactPressed:
+  world        → WorldSystem.tryInteract()
+  dungeon_world→ CombatSystem.tryInteractDungeonWorld()
+render:
+  loading       → Engine._drawLoadingScreen
+  world         → WorldRenderer + UIRenderer
+  dungeon_world → DungeonWorldRenderer + UIRenderer
+  else          → Renderer（旧竞技场）
+```
+
+关键状态：`idle / loading / world / playing / clear / dungeon_world / choosing / dialog`。
+
+---
+
+## 5. 状态模型：G vs runtime
+
+### 全局进度 `G`
+
+`js/data.js` 里 `const G = {...}`，同时显式 `window.G = G`。
+
+- 旧引擎用裸 `G`（顶层 const 的全局词法绑定）。
+- 模块化代码大量用 `window.G`。
+- **不要删掉 `window.G = G`**，否则模块化代码会拿到 undefined。
+
+`G` 包含：用户名、出身、境界、修为、攻击/生命/速度/暴击、剧情节点、成就、功法、NPC 关系、世界坐标、flag 等。
+
+### 运行时 `window.gameState.runtime`
+
+`GameState` 构造出的战斗/世界状态。重点字段：
+
+```text
+running, state, storyDungeon, skirmish, floor, floorCount,
+dungeonId, dungeon, dungeonMods, bossElement, ambient,
+time, mapSeed, noDeathRun,
+player, monsters, bullets, effects, texts, chests, traps,
+scenery, landmarks, arena, floorNpc, pendingFloorClear,
+cards: { player, monster, run }, monsterMods,
+world: { player, camera, zone, time, decor, actors, creatures, ... },
+input, assets: { images, floorPattern },
+dungeonWorld, dungeonWorldMode, explored, playerVision,
+nearbyDungeonNpc
+```
+
+注意：
+
+- `gameState.assets` 是 `runtime.assets` 的兼容别名；渲染代码读 `runtime.assets`。
+- `world` 是**大地图**状态；`dungeonWorld` 是**秘境大地图**状态。不要把两者混用。
+- `dungeonWorldMode` 为 true 时，`state.state === 'dungeon_world'`，战斗系统使用世界坐标 2400×1600，而不是 960×540。
+- `explored` 是 Set，key 为 `"gx,gy"`（16px 网格），用于小地图/已探索地标。
+- `playerVision` 默认 280，用于秘境迷雾。
+
+---
+
+## 6. 秘境系统（当前重点）
+
+### 6.1 数据字段
+
+每个 `DUNGEONS` 条目除原有 `floorPool / hpScale / atkScale / techniques` 外，新增：
+
+```js
+gimmick        // 秘境机制描述，显示在秘境选择页（可选）
+floorThemes    // 每层主题，如 ['lava','mine','lava','temple','lava']
+trapSequence   // 每层主陷阱，如 ['fire','crystal','blade','fire','altar']
+ambient        // leaves / embers / snow / wisps
+arenaStyle     // ring / cavern / cross / corridor（旧竞技场兼容用）
+bossElement    // Boss 弹幕颜色
+colorTint      // 地面色调（渲染用）
+mods           // playerSpeed / monsterSpeed / damageTaken / regen / visibility / slip
+```
+
+### 6.2 生成链路
+
+当前 `CombatSystem.startRun()` **总是**调用 `_spawnDungeonWorldAsync(floor)`，生成 2400×1600 的秘境大地图（旧 960×540 竞技场模式保留兼容，但正常流程不走）。
+
+注意两条入口不要混淆：
+
+```text
+秘境选择页 → Engine.startDungeonWorld(dungeonId)
+  → WorldSystem.startDungeonWorld：进入“秘境外围”大地图区域（world 状态）
+  → 玩家在大地图上靠近游荡妖兽，按 E
+  → WorldSystem.tryInteract → Engine.startRun(1, false, dungeonId, true)
+  → CombatSystem 才真正进入 dungeon_world 秘境世界
+```
+
+`Engine.startDungeonWorld` 本身不是战斗入口，它只是把大地图的 zone 切到秘境区域。
+
+```text
+startRun
+  → _spawnDungeonWorldAsync
+    → MapGeneratorWorker.generateDungeonWorld(dungeon, floor, mapSeed)
+      → generateDungeonWorld:
+        decor 600
+        landmarks（按 floorTheme）
+        traps（按 trapSequence）
+        creatures（按 floorPool + hpScale/atkScale + 层数）
+        npcs（按 DUNGEON_NPC_EVENTS + 主线程 NPCS）
+        entry（底部中央）/ exit（顶部中央）
+        floorTheme / ambient
+    → _finishSpawnDungeonWorld
+      → 玩家放在 entry
+      → 补全 NPC（Worker 拿不到主线程数据时）
+      → 生成宝箱/怪物/出口
+      → 状态切到 dungeon_world
+```
+
+Worker 与主线程同步版必须保持**同样字段/算法**；如果只改一半，Worker 成功时和回退时行为会不同。
+
+### 6.3 每层主题/机关
+
+- `floorThemes` 决定该层用哪套地形：forest / ruins / bamboo / bones / mine / lava / temple / ice / altar。
+- `trapSequence` 决定该层主陷阱：roots / blade / sinkhole / bone / crystal / miasma / fire / rune / ice / altar。
+- `ambient` 决定环境粒子（树叶/火星/雪/幽魂）。
+- `mods` 影响：
+  - `playerSpeed` / `monsterSpeed`
+  - `damageTaken`
+  - `regen`
+  - `visibility`（幽冥更低）
+  - `slip`（寒潭更滑）
+- 这些字段是让秘境“有根本差异”的主要手段，不要只改随机种子。
+
+### 6.4 视野/迷雾/小地图
+
+- `_updateVisionSystem` 每帧标记 16px 网格探索区域，并计算怪物 `inPlayerVision` / `canSeePlayer`。
+- `DungeonWorldRenderer` 只绘制玩家视野内的装饰/怪物/陷阱/宝箱/地标；已探索地标用低透明度保留。
+- `_drawFogOfWar` + `_drawMiniMap` 在相机变换外绘制。
+- 相机跟随玩家，限制在 `world.width/height` 内。
+
+### 6.5 出口与清层
+
+- 秘境世界有入口 `entry` 和出口 `exit`。
+- `_checkDungeonWorldExit` 在玩家接近出口时调用 `window.onDungeonFloorClear(floor)`。
+- `story.onDungeonFloorClear` 决定：非剧情秘境 `Engine.nextFloor()`；剧情秘境更新 `G.story.node` 并回大地图/结算。
+- `nextFloor` 在秘境世界模式下重新生成下一层，并保留玩家血量/部分 mods。
+
+### 6.6 秘境 NPC
+
+- `MapGenerator.generateDungeonWorldNPCs` 根据 `DUNGEON_NPC_EVENTS[dungeon.id]` 和 `floor` 生成。
+- Worker 内部拿不到主线程 `window.NPCS`，所以 `CombatSystem._finishSpawnDungeonWorld` 会在 `world.npcs` 为空时用主线程 `MapGenerator.generateDungeonWorldNPCs` 补全。
+- `floorNpc` 结构：`{ x, y, phase, used, npc: { id, name, portrait, dungeonEncounter, title, greeting, choices } }`。
+- **传给 `window.onDungeonNpcNearby` 的必须是 `floorNpc.npc`，不是 `floorNpc` 外壳**；否则 `npc.id` 是 undefined，立绘报错。
+- `used` 必须只在成功打开对话后置 true；对话抛异常要恢复 false，避免 NPC 永久消失。
+- 按 E 交互：`Engine.loop` 的 `interactPressed` → `CombatSystem.tryInteractDungeonWorld()`；不要恢复成“靠近自动触发”。
+
+---
+
+## 7. 卡牌系统（精确规则）
+
+### 7.1 抽卡页面
+
+- 玩家强化：3 张。
+- 妖魔强化：3 张。
+- 诅咒：**不是独立类型**；每次抽卡至多 1 张，`Math.random() < 0.25` 才出现，插在玩家/妖魔两列之间。
+- 没有诅咒时只有两列；有诅咒时三列，中间只有 1 张。
+- 底部固定 `确认`：
+  - 玩家与妖魔选择数量相等才可确认；
+  - 诅咒是额外风险选项，不参与相等判定；
+  - 选中的卡会一次性结算；
+  - 重复卡达到 3 阶必须选进化分支，否则不能确认。
+
+### 7.2 状态与卡池
+
+- 卡池：`window.PLAYER_CARDS` / `window.MONSTER_CARDS`。
+- 诅咒卡：`MONSTER_CARDS.filter(c => c.type === 'cursed')`，不是独立池。
+- 当前 rank 存于 `state.cards.player[c.id]` / `state.cards.monster[c.id]`，**不是 `state.cardRanks`**（旧字段）。
+- 抽卡过滤必须写 `(rank || 0) < 3`；`undefined < 3` 是 false，会抽空。
+- 卡牌图标：`cardArt(card.id)` → `assets/card-icons.svg` 的 `<use>`；缺 icon 会抛错。
+- 诅咒重复奖励在 `CURSE_DUPLICATE_BONUSES[curseTier]`；诅咒进化在 `CURSE_EVOLUTIONS[curseTier]`，不是 `card.curseUpgrade`。
+
+### 7.3 关键方法
+
+```text
+CardSystem.showDualCardChoice()  抽 3+3，掷 25% 诅咒，渲染
+CardSystem._rollCurseCard()      Math.random() < 0.25，最多 1 张
+CardSystem._renderDualUI()       两列或三列 + 底部确认
+CardSystem._toggleCard()         选择/取消/分支/每列最多 3
+CardSystem._updateConfirmBtn()   玩家数 == 妖魔数 + 分支就绪
+CardSystem._confirmDualChoice()  逐张 _applyPlayerCard/_applyMonsterCard
+```
+
+---
+
+## 8. 战斗、特效、音效
+
+- `CombatSystem.tryAttack`：攻击范围 + 暴击 + 溅射视觉；命中由 `_resolveBullet` 结算。
+- `_spawnSlash` 生成 `slash` 特效 + 瞬发 bullet；`damageMonster` 生成 `hit`、击退、元素、连锁等。
+- 已恢复的视觉：斩击弧光、命中火花、暴击圈、击退箭头、冲刺/残影、连锁闪电、受击红闪、火焰/冰霜/中毒/治疗/护盾/反伤/进化光环。
+- 秘境世界：怪物有 wander/chase/attack/return 状态机，有限视野；远程怪/Boss 弹幕。
+- 音效：`AudioManager` 用 WebAudio 合成，第一次用户手势后创建 AudioContext；HUD 右侧 🔊/🔇。
+- 渲染类：
+  - `WorldRenderer`：overworld 大地图。
+  - `DungeonWorldRenderer`：秘境 2400×1600、相机、视野、迷雾、小地图。
+  - `Renderer` 内的 `FloorRenderer/SceneryRenderer/EntityRenderer/EffectRenderer/TrapRenderer/UIRenderer`：旧竞技场，也提供部分绘制静态方法给 DungeonWorldRenderer。
+- **静态渲染方法必须绑定 this**：层函数里 `this._drawXxx` 如果直接传 `window.XxxRenderer.render`，严格模式下 `this` 是 undefined。
+
+---
+
+## 9. NPC、剧情、交互
+
+- 大地图：`WorldSystem._checkInteractions` / `tryInteract`；按 E 触发附近 NPC/怪物/剧情点。
+- 秘境：`CombatSystem._updateFloorNpc` 只记录 `nearbyDungeonNpc`，**不自动弹窗**；按 E 才 `tryInteractDungeonWorld()`。
+- 对话暂停：`Engine.pauseForNpcDialog()` 把 state 暂存到 `npcPausedState`，切成 `dialog`；关闭时 `resumeFromNpcDialog()` 恢复。
+- `story.js` 的 `showNpcDialog` 使用 `Engine.drawNpcPortrait`；立绘坐标在 `Engine._drawNpcPortrait` 与 `DungeonWorldRenderer._drawNpc` 中维护。新增 NPC 要同时补：
+  - `NPCS` 数据；
+  - `npc-sprites.svg` 中的位置；
+  - `_drawNpcPortrait` / `DungeonWorldRenderer` 的坐标表。
+- 旧版 `NPCManager` 与 `story.js` 有重复实现；当前主要走 story 的回调。改 NPC 行为时先确认实际调用的是哪一套。
+
+---
+
+## 10. 存档与账号
+
+- `localStorage` key：`xian2d_save_<username>`；账号：`xian2d_user_<username>`。
+- 密码：PBKDF2-SHA256，随机 salt，iterations 210000；本地校验，不上传。
+- `SAVE_VERSION` 目前没有真正的迁移逻辑；改存档结构要么兼容旧字段，要么写迁移。
+- `applySaveData` 会 `JSON.parse`，损坏存档要在入口捕获；不要只相信 `created`。
+- 旧字段兼容：`world` 保存 `{ x, y, zone }`；`runtime.world` 是运行时。
+- 存档列表把用户名拼进 HTML/内联 onclick，用户名含引号有自 XSS 风险（本地场景风险低，但不要扩大）。
+
+---
+
+## 11. 资源与音效
+
+- 运行时立绘已从 1024px PNG 转为 256px WebP；`assets/` 约 3MB（其中 `assets/raw/` 仍是源图）。
+- 玩家行走图仍是 PNG 精灵表（512×64，8 帧）。
+- `assets/card-icons.svg`、`assets/npc-sprites.svg` 是 SVG sprite。
+- `floor.webp` 是地面纹理；`village_bg.webp` 是登录背景。
+- 源图在 `assets/raw/`，不要直接引用 `raw/`。
+- 音效无外部文件；不要为了音效引入大型依赖。
+
+---
+
+## 12. 测试与调试方法论
+
+### 零依赖单元测试
+
+`tests/unit.test.mjs` 用 Node 内置 `node:test`，不依赖 `node_modules`。  
+覆盖：MathUtils、SeededRandom、EventBus、ObjectPool、GameState、InputManager、AssetLoader、诅咒 25% 规则。
+
+### Jest
+
+`js/__tests__/*.test.js` 使用 jsdom；`setup.js` 提供 canvas/Touch/Image mock。
+当前 5 套 75 测试。新增秘境/NPC 逻辑时优先补：
+- `CombatSystemNpc.test.js` 这种“纯逻辑 + fake world”测试；
+- 不依赖真实图片/网络。
+
+### 冒烟测试的确定性 rAF
+
+无头浏览器里 rAF 时间戳可能不推进，导致 `dt=0`、世界不动。`tests/smoke.html` 在加载脚本前把 `requestAnimationFrame` 换成队列，审计脚本用：
+
+```js
+window.__stepRaf(ts) // 手动推进一帧
+```
+
+这样能稳定测试移动、攻击、清层、选卡。
+
+### 视觉检查
+
+看截图，不要只看 `errors=[]`。之前出现过：
+- 怪物图是 1024 单图，却按 64×64 四帧裁切 → 只画左上角；
+- 卡牌三列宽度溢出、确认按钮被挤出屏幕；
+- `hidden { display:none !important }` 让 `.visible` 永远无效。
+这些都不会报错，但用户一眼就能看到。
+
+---
+
+## 13. 血泪坑清单（按疼感排序）
+
+1. **两套引擎并存**：`js/engine.js` 与 `js/engine/**`。只改一套会出现“旧版有、新版没有”。
+2. **编码损坏**：曾出现 `break.`（8 处）、`????` 注释、Engine.js 非 UTF-8。改文件前先确认 UTF-8；改完 `node --check`。
+3. **`break.` 会让整个 Renderer 不加载**，但页面可能只表现为黑屏/按钮无效；必须看控制台。
+4. **`window.Engine = this` 覆盖类**：main/story 还在用 `Engine.getState()` 静态 API；只能设 `Engine.instance = this`，不要覆盖 `window.Engine`。
+5. **`window.G` 与裸 `G`**：data.js 顶层的 `const G` 不是 `window.G`；必须显式 `window.G = G`。
+6. **`runtime.assets` vs `gameState.assets`**：渲染读 `runtime.assets`；GameState 必须把 assets 放到 runtime 上并做别名。
+7. **Worker 协议**：`PING` 必须有 `PONG`；每个回包必须带 `requestId`；初始化要有超时；主线程用注入的 worker 实例，不要用未初始化的全局单例。
+8. **Worker/同步双实现**：`MapGenerator` 与 `mapGenerator.worker.js` 各有一份；改参数/主题/陷阱必须两边同步，并更新 `MapGeneratorWorker` 的 options。
+9. **`floor`/`PAD` 作用域**：重构时曾把旧方法体粘到类外，导致 `floor is not defined`；`_finishSpawnFloor` 要显式取 `this.state.floor` 和 `this.constants`。
+10. **`state.cardRanks` 已废弃**：现在用 `state.cards`；`undefined < 3` 为 false。
+11. **抽卡 pending 必须赋值**：只 draw 不存 `_pending*`，点击永远找不到卡。
+12. **确认按钮**：不是点一张就结算；要允许多选，玩家/妖魔数量相等，底部确认。
+13. **诅咒不是独立类型**：至多 1 张、25% 概率、插在中间；不要恢复成固定 3 张诅咒列。
+14. **NPC 外壳**：`onDungeonNpcNearby` 要传 `floorNpc.npc`；传 `floorNpc` 会得到 `id undefined` 的立绘错误。
+15. **NPC `used`**：成功对话后才置 true；对话抛异常要恢复 false；`_updateFloorNpc` 在 NPC 消失时清理 `nearbyDungeonNpc`。
+16. **秘境世界坐标**：`dungeonWorld` 是 2400×1600，玩家/怪物/陷阱的 clamp 不能再用 960×540；用 `_worldW()/_worldH()/_minX/_maxX`。
+17. **静态渲染 `this`**：`addLayer('floor', window.FloorRenderer.render)` 会丢 this；用箭头或 bind。
+18. **暂停覆盖层**：旧代码把 `monster.atkCd = 999`，开一次菜单怪物整局不攻击；只切 `running`，不要改实体计时器。
+19. **`hidden` 的权重**：CSS `.hidden { display:none !important }` 会压过 `.visible`；初始不要给交互按钮加 `hidden`。
+20. **无头浏览器 rAF**：`--virtual-time-budget` 不一定推进 rAF；用 `tests/smoke.html` 的手动队列。
+21. **PowerShell 假失败**：`npm ... 2>&1` 可能显示 exit 1；用 `cmd /c` 或看 Test Suites 汇总。
+22. **不要把 `node_modules`、`package-lock` 与源码混为一谈**：`package-lock.json` 应提交；`node_modules` 不提交。
+23. **用户看到的是画面与手感**：架构再漂亮，卡牌被裁切、特效消失、怪物不动，就是失败。
+
+---
+
+## 14. 修改约定 / 检查清单
+
+### 加/改秘境
+
+1. 在 `data.js` 的 `DUNGEONS` 加/改 `floorThemes`、`trapSequence`、`ambient`、`bossElement`、`mods`。
+2. 同步 `MapGenerator.js` 与 `js/workers/mapGenerator.worker.js`（如果走 Worker）。
+3. 若改生成参数，`MapGeneratorWorker.generateDungeonWorld` 的 payload 也要改。
+4. 检查 `DungeonWorldRenderer` 是否需要新地形/地标绘制。
+5. 跑 `npm run smoke`，并截图看主题差异。
+
+### 加/改卡牌
+
+1. 数据加到 `PLAYER_CARDS` / `MONSTER_CARDS`；诅咒加 `type:'cursed'`、`curseTier`、`curseCost`、`curseGift`。
+2. 卡牌图标加到 `CARD_ART` 与 `assets/card-icons.svg`。
+3. 进化：普通卡加到 `CARD_EVOLUTIONS`；诅咒加到 `CURSE_EVOLUTIONS`；重复奖励加到 `CARD_DUPLICATE_BONUSES` / `CURSE_DUPLICATE_BONUSES`。
+4. 检查 `CardSystem._cardHTML` 的 effect 标签是否需要补。
+5. 跑零依赖测试中的诅咒概率用例 + `npm run smoke`。
+
+### 加/改怪物
+
+1. `MONSTERS` 加数据（`ranged/healer/splitOnDeath/boss` 等）。
+2. 图片为单张方形 WebP，不要按四帧精灵表裁切；`EntityRenderer._drawMonster` 整张缩放。
+3. 秘境刷新池来自 `dungeon.floorPool`；确认层数索引。
+4. Boss 弹幕颜色来自 `dungeon.bossElement`。
+
+### 加/改 NPC
+
+1. `NPCS` 数据 + `npc-sprites.svg` 坐标 + `Engine._drawNpcPortrait` / `DungeonWorldRenderer._drawNpc` 坐标表。
+2. 秘境遭遇加 `DUNGEON_NPC_EVENTS`。
+3. 按 E 交互，不要自动弹；确认 `floorNpc.npc` 传递。
+4. 跑 `npm run test:jest`（有 `CombatSystemNpc.test.js`）。
+
+### 通用
+
+- 新全局要么挂 `window.X`，要么在 `.eslintrc.cjs` 声明；不要制造隐式全局。
+- 改 UI 必须看桌面 + 移动端布局。
+- 改完代码更新 `README.md` 与本文件（如果规则变了）。
+- 不要在没有验证的情况下清空/重写用户数据或资源。
+
+---
+
+## 15. 当前已知遗留 / 可选改进
+
+- `js/engine.js` 旧引擎仍然存在（190KB），与模块化引擎重复；保留是为回退，但会持续漂移。
+- `assets/raw/` 约 2.6MB 源图仍在部署目录；可移出站点根或加忽略。
+- ESLint 有大量历史风格 warning（0 error）；Prettier 全量检查仍会失败，未统一格式。
+- `SAVE_VERSION` 没有迁移；旧存档字段靠默认值兜底。
+- 存档列表有本地自 XSS 风险（用户名拼 HTML/onclick）。
+- `ObjectPool`、`EventBus` 基本未接入战斗；不要误以为它们在生效。
+- 旧竞技场模式（960×540）仍保留兼容，但正常 `startRun` 走秘境大地图。
+- 工作区可能残留未提交的秘境/ NPC 改动；接手先 `git status`，不要覆盖。
+- 移动端 UI、音频混音、更多 Boss 机制仍可扩展。
+
+---
+
+## 16. 快速排障
+
+| 现象 | 优先检查 |
+| --- | --- |
+| 登录后黑屏/按钮无效 | 控制台是否 SyntaxError（`break.` / 括号）；`Engine.instance` 是否初始化；`runtime.assets` 是否存在 |
+| 卡在“正在生成秘境” | Worker `PING/PONG`、`requestId`、初始化超时；回退同步是否可用 |
+| 大地图能动、秘境不能动 | `dungeonWorldMode`、`state` 是否 `dungeon_world`，`CombatSystem.update(dt,input)` 是否收到 input |
+| 玩家被限制在左上角 | 秘境边界 clamp 是否误用 960×540；用 `_worldW/_worldH` |
+| 抽卡空白 | `state.cards`、`(rank||0)<3`、pending 是否赋值、卡池是否为空 |
+| 点卡没反应 | 事件委托的 `data-id/data-side`、`_pending*`、确认按钮是否 disabled |
+| 确认按钮不亮 | 玩家/妖魔数量是否相等；3 阶卡是否选进化分支 |
+| NPC 立绘报错 | 传的是 `floorNpc` 还是 `floorNpc.npc`；`id` 是否在 `npc-sprites` 坐标表 |
+| NPC 对话后卡住 | `pauseForNpcDialog/resumeFromNpcDialog`、`npcPausedState`、overlay 是否隐藏 |
+| 清层不推进 | `onDungeonFloorClear` 是否被 compat 覆盖；`nextFloor` 是否走秘境世界分支 |
+| 怪物不动/不攻击 | `inPlayerVision`、`canSeePlayer`、状态机、`state.running`、是否被暂停逻辑改计时器 |
+| 特效消失 | 是否调用了 `_spawnSlash`/`damageMonster` 的 effect push；`EffectRenderer._drawEffect` 是否有对应 case |
+| `npm test` 通过但页面崩 | 单元测试只覆盖纯逻辑；跑 `npm run smoke` / 看截图 |
+| PowerShell 报 exit 1 | 用 `cmd /c` 看真实 `%ERRORLEVEL%` |
+
+---
+
+## 17. 工程原则（毕生经验浓缩）
+
+1. **先让它跑，再让它优雅。** 重构不能以“架构正确”为理由丢掉玩家能看到的东西。
+2. **旧代码是需求文档。** 卡牌 UI、特效、Boss 行为，先对照旧引擎的调用点和绘制分支，再决定是否“重写”。
+3. **状态字段是契约。** `runtime.assets`、`cardRanks`、`worldZone` 这类字段一旦被多处读取，改名必须全量搜索并跑集成测试。
+4. **一次只改一个变量。** 先修语法，再修初始化，再修渲染，再修玩法；否则出错时不知道是哪一步。
+5. **浏览器是最终裁判。** `node --check`、typecheck、单测都通过，也可能画面全错；必须实际跑。
+6. **可逆性优先。** 大改前保留旧入口/旧分支（`legacy.html`），出问题能回退。
+7. **不要相信“随机”能制造差异。** 秘境差异来自主题、机关、地形、AI、Boss、资源，不是换个 seed。
+8. **让测试可重复。** 随机概率用可 stub 的 `Math.random`；无头 rAF 用手动队列；不要写“极小概率失败”的测试。
+9. **小心工具链的假绿灯。** ESLint 0 error 不代表没 bug；Prettier 没过不代表游戏不能玩；Jest 通过不代表浏览器能启动。
+10. **用户描述的是体验，不是实现。** “特效全没了”“抽卡不对”要翻译成具体的渲染分支、卡池、选择状态，再逐项对照。
+
+---
+
+## 18. 关键位置速查
+
+| 目标 | 文件 / 方法 |
+| --- | --- |
+| 入口/脚本顺序 | `index.html` |
+| 旧引擎回退 | `legacy.html` + `js/engine.js` |
+| 引擎生命周期/主循环 | `js/engine/Engine.js` |
+| 运行时状态/常量/assets | `js/engine/core/GameState.js` |
+| 输入 | `js/engine/core/InputManager.js` |
+| 大地图 | `js/engine/world/WorldSystem.js` + `render/WorldRenderer.js` |
+| 秘境大地图生成 | `js/engine/world/MapGenerator.js#generateDungeonWorld` |
+| Worker 生成 | `js/workers/mapGenerator.worker.js` |
+| 战斗/秘境流程 | `js/engine/systems/CombatSystem.js` |
+| 卡牌 | `js/engine/systems/CardSystem.js` + `data.js` 卡池 |
+| 秘境渲染/迷雾/小地图 | `js/engine/render/Renderer.js#DungeonWorldRenderer` |
+| NPC/剧情 | `js/story.js` + `js/engine/world/NPCManager.js` |
+| 存档/账号 | `js/save.js` |
+| 数据 | `js/data.js` |
+| 冒烟测试 | `tests/smoke.html` + `scripts/smoke.mjs` |
+| 单元测试 | `tests/unit.test.mjs` + `js/__tests__/` |
+| 秘境数据字段 | `DUNGEONS[*].floorThemes/trapSequence/ambient/mods` |
+
+---
+
+> 如果只能记一句话：
+> **改动前先确认它属于哪套引擎、哪个状态、哪条渲染路径；改动后用浏览器把整条链路走一遍。**
