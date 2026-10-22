@@ -6,6 +6,12 @@
 - 项目仓库：[cnll0/xian_game](https://github.com/cnll0/xian_game)
 - 使用指南与开发说明：[GitHub Wiki](https://github.com/cnll0/xian_game/wiki)
 
+## Wiki 导航
+
+- 入门：[快速开始](https://github.com/cnll0/xian_game/wiki/快速开始) · [新手攻略](https://github.com/cnll0/xian_game/wiki/新手攻略) · [玩法指南](https://github.com/cnll0/xian_game/wiki/玩法指南)
+- 资料库：[图鉴](https://github.com/cnll0/xian_game/wiki/图鉴) · [卡牌库](https://github.com/cnll0/xian_game/wiki/卡牌库) · [物品与商店](https://github.com/cnll0/xian_game/wiki/物品与商店) · [功法](https://github.com/cnll0/xian_game/wiki/功法) · [秘境详解](https://github.com/cnll0/xian_game/wiki/秘境详解) · [剧情攻略](https://github.com/cnll0/xian_game/wiki/剧情攻略) · [出身与天赋](https://github.com/cnll0/xian_game/wiki/出身与天赋)
+- 开发：[开发说明](https://github.com/cnll0/xian_game/wiki/开发说明) · [更新日志](https://github.com/cnll0/xian_game/wiki/更新日志)
+
 ## 开始游戏
 
 ### 在线游玩
