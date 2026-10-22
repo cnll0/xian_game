@@ -71,12 +71,14 @@ function spendSpiritStones(amount) {
 
 function getItemPrice(def, shopId) {
     if (!def || !def.price) return 0;
+    const talentDiscount = (G.flags && G.flags.shopDiscount) || 0;
     if (shopId === 'sect') {
         const rank = ensureSect().rank;
-        const discount = (window.SECT && SECT.ranks[rank] && SECT.ranks[rank].discount) || 0;
+        const rankDiscount = (window.SECT && SECT.ranks[rank] && SECT.ranks[rank].discount) || 0;
+        const discount = Math.max(rankDiscount, talentDiscount);
         return Math.max(1, Math.round(def.price * (1 - discount)));
     }
-    return def.price;
+    return Math.max(1, Math.round(def.price * (1 - talentDiscount)));
 }
 
 function getSectRank() {
@@ -162,13 +164,15 @@ function useItem(id) {
     }
 
     if (def.use.hp) {
+        const healMul = 1 + ((G.flags && G.flags.healBonus) || 0);
+        const healAmount = Math.max(1, Math.round(def.use.hp * healMul));
         if (target) {
             const before = target.hp;
-            target.hp = Math.min(target.maxHp, target.hp + def.use.hp);
+            target.hp = Math.min(target.maxHp, target.hp + healAmount);
             parts.push('恢复' + Math.round(target.hp - before) + '生命');
         } else {
             const before = G.hp;
-            G.hp = Math.min(G.maxHp, G.hp + def.use.hp);
+            G.hp = Math.min(G.maxHp, G.hp + healAmount);
             parts.push('恢复' + Math.round(G.hp - before) + '生命');
         }
     }

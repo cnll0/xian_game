@@ -125,6 +125,7 @@ global.G = {
   guest: false,
   created: false,
   origin: null,
+  talent: 'mortal',
   realm: 0,
   cultivation: 0,
   atk: 10,
@@ -165,6 +166,11 @@ global.ORIGINS = [
   { id: 'merchant', emoji: '🪙', name: '商贾之后', avatarSeed: 'shanggu', desc: '身家丰厚', bonus: { atk: 1, crit: 5 }, startItem: 'pill_hp' },
   { id: 'noble', emoji: '🏛️', name: '没落世家', avatarSeed: 'shijia', desc: '祖传剑法', bonus: { atk: 4, range: 8 } },
   { id: 'hunter', emoji: '🏹', name: '山村猎户', avatarSeed: 'liehu', desc: '身手矫健', bonus: { maxHp: 20, speed: 0.6 } }
+];
+
+global.TALENTS = [
+  { id: 'swordbone', emoji: '🗡️', name: '剑骨天成', rarity: 'rare', weight: 14, desc: '攻击+2', bonus: { atk: 2, crit: 8 } },
+  { id: 'mortal', emoji: '🪨', name: '凡骨', rarity: 'common', weight: 0, desc: '无额外天赋', bonus: {} }
 ];
 
 global.DUNGEONS = [
@@ -316,6 +322,7 @@ if (typeof window !== 'undefined') {
 
 // 加载被测模块
 require('../engine/utils/MathUtils.js');
+require('../engine/utils/Collision.js');
 require('../engine/utils/AssetLoader.js');
 require('../engine/utils/ObjectPool.js');
 require('../engine/core/EventBus.js');
@@ -323,7 +330,7 @@ require('../engine/core/GameState.js');
 require('../engine/core/InputManager.js');
 
 // 模块通过 window.X 暴露类；测试里直接使用裸类名
-for (const name of ['MathUtils', 'SeededRandom', 'ObjectPool', 'PoolTypes', 'EventBus',
+for (const name of ['MathUtils', 'Collision', 'SeededRandom', 'ObjectPool', 'PoolTypes', 'EventBus',
     'GameState', 'InputManager', 'AssetLoader']) {
     if (typeof window !== 'undefined' && window[name]) {
         global[name] = window[name];

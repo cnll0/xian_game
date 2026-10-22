@@ -44,6 +44,7 @@ function getSaveData() {
         ver: SAVE_VERSION,
         username: G.username,
         origin: G.origin,
+        talent: G.talent,
         created: G.created,
         realm: G.realm,
         cultivation: G.cultivation,
@@ -73,6 +74,7 @@ function applySaveData(raw) {
     }
     G.username = d.username || G.username;
     G.origin = d.origin || null;
+    G.talent = d.talent || 'mortal';
     G.created = true;
     G.realm = d.realm || 0;
     G.cultivation = d.cultivation || 0;
@@ -83,7 +85,8 @@ function applySaveData(raw) {
     G.lifesteal = d.lifesteal || 0;
     G.crit = d.crit || 0;
     G.hp = Math.min(d.hp != null ? d.hp : G.maxHp, G.maxHp);
-    G.flags = Object.assign({ kills: 0, runs: 0, clears: 0, maxFloor: 0, cursedPicks: 0, storyClear: 0, deaths: 0, noDeathClear: 0 }, d.flags || {});
+    G.flags = Object.assign({ kills: 0, runs: 0, clears: 0, maxFloor: 0, cursedPicks: 0, storyClear: 0, deaths: 0, noDeathClear: 0,
+        cultGain: 0, damageReduce: 0, luck: 0, healBonus: 0, shopDiscount: 0, notoriety: 0 }, d.flags || {});
     G.story = d.story || { node: 's0', done: [] };
     G.world = d.world || null;
     G.learnedTechniques = Array.isArray(d.learnedTechniques) ? d.learnedTechniques : [];

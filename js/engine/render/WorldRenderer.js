@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 /**
  * 大地图渲染器：从旧引擎 drawWorldMap 迁移而来。
@@ -394,7 +394,12 @@ class WorldRenderer {
             ctx.fillStyle = creature.tint;
             ctx.beginPath(); ctx.arc(creature.x, creature.y + bob, creature.r + 7, 0, Math.PI * 2); ctx.fill();
             ctx.globalAlpha = 1;
-            drawSprite(creature.img, creature.x, creature.y + bob, Math.min(48, creature.draw * 0.72), false);
+            if (creature.human) {
+                this._drawCharacterArt(ctx, images, creature.art, creature.x, creature.y + bob,
+                    Math.min(82, creature.draw + 18));
+            } else {
+                drawSprite(creature.img, creature.x, creature.y + bob, Math.min(48, creature.draw * 0.72), false);
+            }
             if (Math.hypot(p.x - creature.x, p.y - creature.y) < 175) {
                 ctx.font = '11px sans-serif';
                 ctx.textAlign = 'center';
@@ -410,7 +415,7 @@ class WorldRenderer {
             let npc = actor.npc;
             ctx.fillStyle = 'rgba(0,0,0,0.28)';
             ctx.beginPath(); ctx.ellipse(actor.x, actor.y + 24, 23, 8, 0, 0, Math.PI * 2); ctx.fill();
-            drawNpcSprite(npc.id, actor.x, actor.y + Math.sin(time * 3 + actor.phase) * 1.2, 72);
+            drawNpcSprite(npc.id, actor.x, actor.y + Math.sin(time * 3 + actor.phase) * 1.2, 68);
             if (Math.hypot(p.x - actor.x, p.y - actor.y) < 175) {
                 ctx.font = 'bold 11px sans-serif';
                 ctx.textAlign = 'center';
@@ -496,20 +501,30 @@ class WorldRenderer {
     }
 
     static _drawNpcSprite(ctx, images, npcId, x, y, height) {
-        const sprites = images.npcSprites;
         const npcs = window.NPCS || [];
         const npc = npcs.find(item => item.id === npcId);
-        const portraitIndex = {
-            ningxiao: 0, linyue: 1, shenli: 2, guqinghan: 3,
-            mochen: 4, jichang: 5, hanxing: 6
-        };
-        const portrait = (npc && npc.portrait) || npcId;
-        let index = portraitIndex[portrait];
-        if (index === undefined) index = npcs.findIndex(item => item.id === npcId);
-        if (!sprites || index < 0) return false;
-        const width = height * 0.8;
-        ctx.drawImage(sprites, index * 128, 0, 128, 160,
-            x - width / 2, y - height / 2, width, height);
+        const artKey = (npc && npc.portrait) || npcId;
+        return this._drawCharacterArt(ctx, images, artKey, x, y, height);
+    }
+
+    /**
+     * 用统一的 64x64 像素角色帧绘制 NPC/人形敌手。
+     * 脚底锚点在 y + h * 0.2，保持最近邻放大，和主角像素画风一致。
+     */
+    static _drawCharacterArt(ctx, images, artKey, x, y, height, alpha = 1) {
+        const sheet = images && images.npcSprites;
+        const art = window.CHARACTER_ART || {};
+        const frame = window.CHARACTER_ART_FRAME || { w: 64, h: 64 };
+        const index = art[artKey];
+        if (!sheet || index === undefined) return false;
+        const h = height || 80;
+        const w = h * frame.w / frame.h;
+        ctx.save();
+        if (alpha !== 1) ctx.globalAlpha = alpha;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(sheet, index * frame.w, 0, frame.w, frame.h,
+            x - w / 2, y - h * 0.78, w, h);
+        ctx.restore();
         return true;
     }
 
@@ -526,3 +541,4 @@ class WorldRenderer {
 }
 
 window.WorldRenderer = WorldRenderer;
+

@@ -143,9 +143,13 @@ function main() {
             const run = JSON.parse(lines['run'] || '{}');
             if (!['playing', 'dungeon_world'].includes(run.state) || !(run.monsters > 0)) failures.push('run');
             if (!(parseFloat(lines['attack.drop']) > 0)) failures.push('attack.drop');
+            const attackFx = JSON.parse(lines['attack.fx'] || '{}') || {};
+            if (!attackFx.slashes || !attackFx.slashes.length) failures.push('attack.fx');
+            if (!attackFx.slashes || !attackFx.slashes.some(s => s.fx === 'player')) failures.push('attack.fx.player');
+            if (!(Math.abs((attackFx.facing || 0) - (attackFx.mouseAngle || 0)) < 0.05)) failures.push('attack.aim');
             const combatFx = JSON.parse(lines['combat.fx'] || '{}') || {};
             if (!combatFx.texts || !combatFx.texts.length) failures.push('combat.texts');
-            if (!combatFx.effects || !combatFx.effects.includes('slash')) failures.push('combat.slash');
+            if (!combatFx.effects || !combatFx.effects.some(e => e.indexOf('slash') === 0)) failures.push('combat.slash');
             const floorClear = JSON.parse(lines['floorClear'] || '{}');
             if (floorClear.floor !== 2) failures.push('floorClear.floor');
             const gateBefore = JSON.parse(lines['gate.before'] || '{}') || {};
@@ -183,6 +187,30 @@ function main() {
             const storyS1Open = JSON.parse(lines['story.s1open'] || '{}') || {};
             if (storyS1Open.opened !== true || storyS1Open.overlay !== 'storyOverlay' || storyS1Open.title !== '老槐树下的老人') failures.push('story.s1open');
             if (lines['errors'] !== '[]') failures.push('window errors');
+
+            // 第二个页面：障碍物碰撞审计（玩家顶着 solid 地标走，不能穿过去）
+            const collisionDom = await runBrowser(browser, `${url}?visual=collision`);
+            const collisionMatch = collisionDom.match(/<pre id="auditResult">([\s\S]*?)<\/pre>/);
+            if (!collisionMatch) {
+                failures.push('collision.audit');
+            } else {
+                const collisionLines = Object.fromEntries(
+                    decodeHtml(collisionMatch[1]).split(/\r?\n/)
+                        .map(line => {
+                            const i = line.indexOf('=');
+                            return i > 0
+                                ? [line.slice(0, i).trim(), line.slice(i + 1).trim()]
+                                : [line.trim(), ''];
+                        })
+                );
+                const collision = JSON.parse(collisionLines['collision'] || '{}');
+                if (!collision.hasSolid) failures.push('collision.hasSolid');
+                if (collision.inside !== false) failures.push('collision.inside');
+                if (!(collision.playerY > collision.solidY)) failures.push('collision.crossed');
+                if (!(collision.playerY < collision.solidY + 165)) failures.push('collision.moved');
+                if (collisionLines['errors'] !== '[]') failures.push('collision.errors');
+            }
+
             if (failures.length) {
                 console.error('冒烟测试失败: ' + failures.join(', '));
                 process.exitCode = 1;

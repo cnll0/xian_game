@@ -18,7 +18,9 @@ function initCompatibilityLayer() {
 
     window.gainCultivation = function(amount) {
         const oldRealm = window.G.realm;
-        window.G.cultivation += amount;
+        const gainBonus = (window.G.flags && window.G.flags.cultGain) || 0;
+        const finalAmount = Math.max(0, Math.round(amount * (1 + gainBonus)));
+        window.G.cultivation += finalAmount;
         while (window.G.realm < window.REALMS.length - 1 &&
             window.G.cultivation >= window.REALMS[window.G.realm + 1].cult) {
             window.G.realm++;

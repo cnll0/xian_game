@@ -118,6 +118,10 @@ class Engine {
         return Engine.getInstance()._drawNpcPortrait(npcId, canvas);
     }
 
+    static startNpcDuel(npcId) {
+        return Engine.getInstance()._startNpcDuel(npcId);
+    }
+
     static getRunCardRank(cardId) {
         return Engine.getInstance()._getRunCardRank(cardId);
     }
@@ -170,7 +174,8 @@ class Engine {
             player_south: 'assets/player/player_south.png',
             player_west: 'assets/player/player_west.png',
             player_east: 'assets/player/player_east.png',
-            npcSprites: 'assets/npc-sprites.svg',
+            npcSprites: 'assets/npc-sprites.png?v=5',
+            npcPortraits: 'assets/npc-portraits.png?v=5',
             wolf: 'assets/wolf.webp',
             brute: 'assets/brute.webp',
             boss: 'assets/boss.webp',
@@ -182,12 +187,13 @@ class Engine {
             portal: 'assets/portal.webp',
             pill: 'assets/pill.webp',
             sword: 'assets/sword.webp',
-            floor: 'assets/floor.webp'
+            floor: 'assets/floor.webp',
+            // 每张秘境地图专属的 solid 障碍素材
+            obstacle_qingyun: 'assets/obstacles/obstacle_qingyun.png?v=1',
+            obstacle_ember: 'assets/obstacles/obstacle_ember.png?v=1',
+            obstacle_frost: 'assets/obstacles/obstacle_frost.png?v=1',
+            obstacle_nether: 'assets/obstacles/obstacle_nether.png?v=1'
         };
-        for (let i = 0; i < 8; i++) {
-            list['slash_' + i] = 'assets/attack/slash_' + i + '.png';
-            list['claw_' + i] = 'assets/attack/claw_' + i + '.png';
-        }
 
         await this.assetLoader.loadImages(list);
         this.gameState.runtime.assets.images = Object.fromEntries(this.assetLoader.loadedAssets);
@@ -242,6 +248,16 @@ class Engine {
         const started = this.worldSystem.startDungeonWorld(dungeonId);
         if (started) this.start();
         return started;
+    }
+
+    _startNpcDuel(npcId) {
+        const npc = (window.NPCS || []).find(item => item.id === npcId);
+        if (!npc) return false;
+        const dungeonId = (window.DUNGEONS || []).some(d => d.id === npc.zone) ? npc.zone : 'qingyun';
+        if (this.worldSystem) this.worldSystem.hideQuestTracker();
+        this.combatSystem.startRun(1, false, dungeonId, true, npc);
+        this.start();
+        return true;
     }
 
     _returnToOverworld() {
@@ -357,37 +373,72 @@ class Engine {
         const ctx = canvas.getContext('2d');
         if (!ctx) return false;
 
-        const npcPortraits = {
-            ningxiao: { x: 0, y: 0 },
-            linyue: { x: 96, y: 0 },
-            shenli: { x: 192, y: 0 },
-            guqinghan: { x: 288, y: 0 },
-            mochen: { x: 384, y: 0 },
-            jichang: { x: 480, y: 0 },
-            hanxing: { x: 576, y: 0 }
-        };
-
-        const img = this.gameState.runtime.assets.images.npcSprites;
-        const pos = npcPortraits[npcId];
+        const images = this.gameState.runtime.assets.images;
+        const img = images.npcPortraits || images.npcSprites;
+        const art = window.CHARACTER_ART || {};
+        const frame = window.ART_PORTRAIT_FRAME || { w: 100, h: 125 };
+        let key = npcId;
+        let index = art[key];
+        if (index === undefined) {
+            const found = (window.NPCS || []).find(item => item.id === npcId || item.portrait === npcId);
+            key = found ? (found.portrait || found.id) : 'ningxiao';
+            index = art[key];
+        }
 
         // 图片未加载完成或未知 NPC：绘制占位符并返回 true，避免中断对话流程
-        if (!img || !img.complete || !img.naturalWidth || !pos) {
+        if (!img || !img.complete || !img.naturalWidth || index === undefined) {
             this._drawNpcPortraitPlaceholder(ctx, canvas, img ? '?' : '加载中...');
             return true;
         }
 
         try {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const npc = (window.NPCS || []).find(item => item.portrait === key || item.id === key);
+            const tint = (npc && npc.color) || '#c6b58d';
+            const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            bg.addColorStop(0, this._shadeColor(tint, 0.42));
+            bg.addColorStop(0.62, this._shadeColor(tint, 0.18));
+            bg.addColorStop(1, '#2a241f');
+            ctx.fillStyle = bg;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'rgba(255,246,210,0.12)';
+            ctx.beginPath();
+            ctx.arc(canvas.width * 0.5, canvas.height * 0.42, canvas.width * 0.38, 0, Math.PI * 2);
+            ctx.fill();
+            // 像素立绘：保持最近邻放大，不要平滑成糊图
             ctx.imageSmoothingEnabled = false;
-            const size = Math.min(canvas.width, canvas.height);
-            const dx = (canvas.width - size) / 2;
-            const dy = (canvas.height - size) / 2;
-            ctx.drawImage(img, pos.x, pos.y, 96, 96, dx, dy, size, size);
+            ctx.drawImage(
+                img,
+                index * frame.w, 0, frame.w, frame.h,
+                0, 0, canvas.width, canvas.height
+            );
+            // 底部渐隐，让立绘与对话框融合
+            const fade = ctx.createLinearGradient(0, canvas.height * 0.82, 0, canvas.height);
+            fade.addColorStop(0, 'rgba(30,24,20,0)');
+            fade.addColorStop(1, 'rgba(30,24,20,0.6)');
+            ctx.fillStyle = fade;
+            ctx.fillRect(0, canvas.height * 0.8, canvas.width, canvas.height * 0.2);
             return true;
         } catch (err) {
             console.warn('NPC 立绘绘制失败:', err);
             this._drawNpcPortraitPlaceholder(ctx, canvas, '?');
             return true;
+        }
+    }
+
+    _shadeColor(hex, amount) {
+        try {
+            const value = hex.replace('#', '');
+            const num = parseInt(value.length === 3
+                ? value.split('').map(c => c + c).join('')
+                : value, 16);
+            let r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
+            r = Math.round(r + (255 - r) * amount);
+            g = Math.round(g + (255 - g) * amount);
+            b = Math.round(b + (255 - b) * amount);
+            return 'rgb(' + r + ',' + g + ',' + b + ')';
+        } catch (e) {
+            return hex;
         }
     }
 

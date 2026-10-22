@@ -48,7 +48,7 @@ class MapGenerator {
             dungeon.floorPool
                 .slice(0, Math.min(3, dungeon.floorPool.length))
                 .flat()
-        )).filter(id => !monsters[id]?.boss && id !== 'elite');
+        )).filter(id => !monsters[id]?.boss && id !== 'elite' && !monsters[id]?.human);
 
         const validPool = pool.length ? pool : ['wolf', 'bat'];
         const creatures = [];
@@ -212,11 +212,14 @@ class MapGenerator {
                 if (!found) continue;
             }
 
+            const isSolid = solidTypes.includes(type);
+            const turnAngle = random() * Math.PI * 2;
             landmarks.push({
                 type,
-                solid: solidTypes.includes(type),
+                solid: isSolid,
                 x, y, w, h,
-                turn: random() * Math.PI * 2,
+                // 实心地标现在用正面朝上的图片素材，不再随机旋转（避免倒立的 shrine）
+                turn: isSolid ? 0 : turnAngle,
                 color: colors[terrain][Math.floor(random() * colors[terrain].length)],
                 phase: random() * Math.PI * 2
             });
@@ -427,11 +430,14 @@ class MapGenerator {
 
             if (!isAvailable(x, y)) continue;
 
+            const isSolid = solidTypes.includes(type);
+            const turnAngle = random() * Math.PI * 2;
             landmarks.push({
                 type,
-                solid: solidTypes.includes(type),
+                solid: isSolid,
                 x, y, w, h,
-                turn: random() * Math.PI * 2,
+                // 实心地标现在用正面朝上的图片素材，不再随机旋转（避免倒立的 shrine）
+                turn: isSolid ? 0 : turnAngle,
                 color: colors[theme][Math.floor(random() * colors[theme].length)],
                 phase: random() * Math.PI * 2
             });
@@ -500,8 +506,31 @@ class MapGenerator {
     generateDungeonWorldCreatures(dungeon, floor, mapSeed, W, H) {
         const random = this._makeRandom(135791 + dungeon.id.length * 817 + floor * 997);
         const pool = dungeon.floorPool[Math.min(floor - 1, dungeon.floorPool.length - 1)] || ['wolf'];
+        const bossPool = pool.filter(id => window.MONSTERS && window.MONSTERS[id] && window.MONSTERS[id].boss);
         const validPool = pool.filter(id => window.MONSTERS && window.MONSTERS[id] && !window.MONSTERS[id].boss);
-        if (validPool.length === 0) validPool.push('wolf');
+        if (validPool.length === 0 && bossPool.length === 0) validPool.push('wolf');
+
+        // Boss 层：只生成一只首领，别让 75% 小怪把首领挤掉
+        if (bossPool.length) {
+            const boss = window.MONSTERS[bossPool[Math.floor(random() * bossPool.length)]];
+            const hpMul = dungeon.hpScale * (1 + (floor - 1) * 0.25);
+            const atkMul = dungeon.atkScale * (1 + (floor - 1) * 0.12);
+            return [{
+                id: boss.id, name: boss.name, img: boss.img, x: W / 2, y: H * 0.26,
+                homeX: W / 2, homeY: H * 0.26,
+                hp: Math.round(boss.hp * hpMul), maxHp: Math.round(boss.hp * hpMul),
+                atk: Math.round(boss.atk * atkMul), speed: boss.speed,
+                r: boss.r, draw: boss.draw, tint: boss.tint || '#a9aa83',
+                vision: boss.vision || 300, cult: boss.cult || 60, human: false,
+                phase: random() * Math.PI * 2, bob: random() * Math.PI * 2,
+                state: 'wander', target: null, lastSeenPlayer: null,
+                ranged: !!boss.ranged, keepDistance: !!boss.keepDistance,
+                shootRange: boss.shootRange || 0, shootCd: boss.shootCd || 2.5,
+                shootTimer: random() * 2, projectileColor: boss.projectileColor || '#ffb86b',
+                healer: !!boss.healer, charge: !!boss.charge, blink: !!boss.blink,
+                elite: true, boss: true
+            }];
+        }
 
         const baseCount = dungeon.id === 'qingyun' ? 8 : dungeon.id === 'nether' ? 14 : 10;
         const count = baseCount + Math.floor(floor * 1.2);
@@ -546,6 +575,10 @@ class MapGenerator {
                 draw: monster.draw,
                 tint: monster.tint || '#a9aa83',
                 vision: monster.vision || 200,
+                cult: monster.cult || 5,
+                human: !!monster.human,
+                art: monster.art || null,
+                faction: monster.faction || '',
                 phase: random() * Math.PI * 2,
                 bob: random() * Math.PI * 2,
                 state: 'wander', // wander, chase, attack, return

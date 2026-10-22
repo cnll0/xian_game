@@ -21,13 +21,18 @@ class CombatSystem {
         this.eventBus = eventBus;
         this.pools = pools;
         this._spawnFloorPromise = null;
+        // 地标碰撞体缓存：换层/换图时置空，由 _obstacles() 重建
+        this._obstacleCache = null;
     }
 
-    startRun(startFloor, storyDungeon, dungeonId, skirmish) {
+    startRun(startFloor, storyDungeon, dungeonId, skirmish, duelNpc = null) {
         if (!window.G.created) return;
 
         this.state.storyDungeon = storyDungeon === true;
         this.state.skirmish = skirmish === true;
+        this.state.duelNpc = duelNpc || null;
+        this.state.duel = !!duelNpc;
+        this.state.duelClearTimer = 0;
         window.G.flags.runs = (window.G.flags.runs || 0) + 1;
 
         this.state.dungeon = window.DUNGEONS.find(d => d.id === dungeonId) || window.DUNGEONS[0];
@@ -230,6 +235,10 @@ class CombatSystem {
         const dungeon = this.state.dungeon || window.DUNGEONS[0];
         const world = this.state.dungeonWorld;
 
+        // 地标碰撞体要在玩家、妖兽落位之前准备好
+        this.state.landmarks = world.landmarks || [];
+        this._resetObstacles();
+
         // 设置玩家初始位置在入口
         const { W, H } = this.constants;
         const entry = world.entry || { x: W / 2, y: H - 80 };
@@ -268,6 +277,8 @@ class CombatSystem {
                 evoAegis: false, evoPhantom: false, evoSoul: false, evoRuin: false, evoBloom: false
             }
         };
+        // 出生点若正好压在障碍物上，先推出来
+        this._pushActor(this.state.player, 0, 0);
 
         // 设置视野系统
         this.state.playerVision = 280; // 玩家基础视野
@@ -281,6 +292,8 @@ class CombatSystem {
             stunCd: 0,
             controlEffect: null
         }));
+        // 妖兽出生点可能正好压在断墙/树桩上：先全部推出障碍物
+        for (const monster of this.state.monsters) this._pushActor(monster, 0, 0);
         this.state.floorMonsterTotal = this.state.monsters.length;
         this.state.floorKillTarget = this.state.monsters.length
             ? Math.ceil(this.state.monsters.length * 0.75)
@@ -290,6 +303,59 @@ class CombatSystem {
         this.state.floorBossKilled = false;
         this.state.floorExitUnlocked = this.state.monsters.length === 0;
         this.state.exitLockToastAt = 0;
+
+        // 与 NPC 的一对一决斗：只留一名人形对手，不再刷妖兽
+        if (this.state.duelNpc) {
+            const npc = this.state.duelNpc;
+            const stats = npc.combatStats || {};
+            const realmScale = 1 + Math.max(0, window.G.realm) * 0.06;
+            const enemy = {
+                id: 'duel_' + npc.id,
+                name: npc.name,
+                img: 'npcSprites',
+                art: npc.portrait || npc.id,
+                human: true,
+                npcId: npc.id,
+                faction: npc.faction || '',
+                boss: false,
+                elite: true,
+                hp: Math.max(48, Math.round((stats.hp || 140) * 0.5 * realmScale)),
+                maxHp: Math.max(48, Math.round((stats.hp || 140) * 0.5 * realmScale)),
+                atk: Math.max(8, Math.round((stats.atk || 18) * 0.5 * (1 + Math.max(0, window.G.realm) * 0.04))),
+                speed: Math.min(3.6, stats.speed || 3),
+                r: 18,
+                draw: 86,
+                tint: npc.color || '#c9a467',
+                vision: 900,
+                x: entry.x,
+                y: Math.max(120, entry.y - 300),
+                homeX: entry.x,
+                homeY: Math.max(120, entry.y - 300),
+                facing: Math.PI / 2,
+                atkCd: 0,
+                stunCd: 0,
+                controlEffect: null,
+                state: 'chase',
+                target: null,
+                lastSeenPlayer: null,
+                shootRange: 0,
+                ranged: false,
+                inPlayerVision: true,
+                canSeePlayer: true,
+                phase: Math.random() * Math.PI * 2,
+                bob: 0
+            };
+            this.state.monsters = [enemy];
+            this._pushActor(enemy, 0, 0);
+            this.state.floorMonsterTotal = 1;
+            this.state.floorKillTarget = 1;
+            this.state.floorHasBoss = false;
+            this.state.floorBossKilled = false;
+            this.state.floorExitUnlocked = false;
+            this.state.floorKills = 0;
+            world.npcs = [];
+            window.toast('⚔️ ' + npc.name + ' 拔剑相对，点到为止。', 'gold');
+        }
 
         // 陷阱
         this.state.traps = world.traps || [];
@@ -326,12 +392,14 @@ class CombatSystem {
                         choices: npcData.choices
                     })
                 };
+                // 秘境 NPC 不能卡进断墙里，否则玩家永远走不到 80px 内
+                this._pushActor(this.state.floorNpc, 0, 0);
             }
         }
 
-        // 宝箱（放在出口附近和随机位置）
+        // 宝箱（放在出口附近和随机位置）；决斗场不放宝箱
         this.state.chests = [];
-        const chestCount = this.state.floor < this.state.floorCount ? 2 : 0;
+        const chestCount = this.state.duel ? 0 : (this.state.floor < this.state.floorCount ? 2 : 0);
         for (let i = 0; i < chestCount; i++) {
             if (i === 0 && world.exit) {
                 this.state.chests.push({ x: world.exit.x, y: world.exit.y + 40, opened: false });
@@ -341,6 +409,15 @@ class CombatSystem {
                     y: 100 + Math.random() * (world.height - 200),
                     opened: false
                 });
+            }
+        }
+        // 宝箱不能生在障碍物里，否则玩家凑不到拾取距离
+        const chestObstacles = this._obstacles();
+        if (chestObstacles.length && window.Collision) {
+            for (const chest of this.state.chests) {
+                const spot = window.Collision.resolve(chest.x, chest.y, 18, chestObstacles);
+                chest.x = spot.x;
+                chest.y = spot.y;
             }
         }
 
@@ -364,6 +441,8 @@ class CombatSystem {
         const floor = this.state.floor;
         const { W, H, PAD } = this.constants;
         const dungeon = this.state.dungeon || window.DUNGEONS[0];
+        // 旧竞技场地标同样挡路：换图后重建碰撞体
+        this._resetObstacles();
         this.state.floorTheme = this._floorTheme(floor);
         this.state.ambient = dungeon.ambient || 'leaves';
         const pool = dungeon.floorPool[Math.min(floor, dungeon.floorPool.length) - 1] || ['wolf'];
@@ -404,6 +483,7 @@ class CombatSystem {
 
             const m = {
                 id: base.id, name: base.name, img: base.img, boss: !!base.boss,
+                human: !!base.human, art: base.art || null, faction: base.faction || '',
                 hp: Math.round(base.hp * hpMul),
                 maxHp: Math.round(base.hp * hpMul),
                 atk: Math.round(base.atk * atkMul),
@@ -456,6 +536,17 @@ class CombatSystem {
         window.updateHUD();
 
         if (this.state.floor > 1) window.showDualCardChoice();
+
+        // 竞技场里的玩家/妖兽/宝箱同样不能卡在 solid 地标里
+        if (this.state.player) this._pushActor(this.state.player, 0, 0);
+        for (const monster of this.state.monsters) this._pushActor(monster, 0, 0);
+        for (const chest of this.state.chests) {
+            const spot = window.Collision
+                ? window.Collision.resolve(chest.x, chest.y, 18, this._obstacles())
+                : chest;
+            chest.x = spot.x;
+            chest.y = spot.y;
+        }
 
         this.state.state = 'playing';
     }
@@ -562,7 +653,7 @@ class CombatSystem {
                 const reward = 15 + this.state.floor * 3;
                 window.gainCultivation(reward);
                 window.G.hp = this.state.player ? Math.max(1, this.state.player.hp) : window.G.hp;
-                window.toast('⚔️ 击退妖兽，修为+' + reward, 'good');
+                window.toast((this.state.duel ? '⚔️ 切磋结束' : '⚔️ 击退妖兽') + '，修为+' + reward, 'good');
                 window.saveGame(false);
             } else {
                 window.G.flags.clears = (window.G.flags.clears || 0) + 1;
@@ -604,6 +695,17 @@ class CombatSystem {
         if (!isPlaying) return;
 
         this.state.time += dt;
+        // 决斗胜利后自动收场，不必再走到出口
+        if (this.state.duel && this.state.duelClearTimer > 0) {
+            this.state.duelClearTimer -= dt;
+            if (this.state.duelClearTimer <= 0) {
+                this.state.duelClearTimer = 0;
+                if (typeof window.onDungeonFloorClear === 'function') {
+                    window.onDungeonFloorClear(this.state.floor);
+                }
+                return;
+            }
+        }
         const p = this.state.player;
 
         p.atkCd = Math.max(0, p.atkCd - dt);
@@ -667,19 +769,81 @@ class CombatSystem {
     }
 
     _worldW() {
-        const world = this.state.dungeonWorldMode && this.state.dungeonWorld;
-        return world ? world.width : this.constants.W;
+        // 只要存在秘境世界就用它的尺寸：碰撞边界必须和实际地图一致。
+        const world = this.state.dungeonWorld;
+        return world && world.width ? world.width : this.constants.W;
     }
 
     _worldH() {
-        const world = this.state.dungeonWorldMode && this.state.dungeonWorld;
-        return world ? world.height : this.constants.H;
+        const world = this.state.dungeonWorld;
+        return world && world.height ? world.height : this.constants.H;
     }
 
     _minX(radius) { return this.constants.PAD + radius; }
     _maxX(radius) { return this._worldW() - this.constants.PAD - radius; }
     _minY(radius) { return this.constants.PAD + radius; }
     _maxY(radius) { return this._worldH() - this.constants.PAD - radius; }
+
+    /**
+     * 当前地图的障碍物碰撞体（solid 地标）。
+     * 只在换层时重建，别每帧 build。
+     * @returns {Array}
+     */
+    _obstacles() {
+        if (!this._obstacleCache) {
+            this._obstacleCache = (window.Collision && this.state.landmarks)
+                ? window.Collision.build(this.state.landmarks)
+                : [];
+        }
+        return this._obstacleCache;
+    }
+
+    _resetObstacles() {
+        this._obstacleCache = null;
+    }
+
+    /**
+     * 会动实体的位移入口：边界 clamp + 障碍物阻挡。
+     * 玩家用默认的滑动式（撞墙后仍能贴墙横移）；妖兽传 steer=true 会在正面被挡死时绕行。
+     * 所有实体改坐标都必须走这里，不要直接 `m.x +=`。
+     * @param {Object} actor
+     * @param {number} dx
+     * @param {number} dy
+     * @param {boolean} [steer]
+     */
+    _moveActor(actor, dx, dy, steer = false) {
+        const r = actor.r || 16;
+        const limitX = MathUtils.clamp(actor.x + dx, this._minX(r), this._maxX(r));
+        const limitY = MathUtils.clamp(actor.y + dy, this._minY(r), this._maxY(r));
+        const obstacles = this._obstacles();
+        if (!obstacles.length || !window.Collision) {
+            actor.x = limitX;
+            actor.y = limitY;
+            return;
+        }
+        const moveFn = steer ? window.Collision.steer : window.Collision.move;
+        const next = moveFn(actor.x, actor.y, limitX - actor.x, limitY - actor.y, r, obstacles);
+        actor.x = MathUtils.clamp(next.x, this._minX(r), this._maxX(r));
+        actor.y = MathUtils.clamp(next.y, this._minY(r), this._maxY(r));
+    }
+
+    /**
+     * 强制位移：击退、拉拽、闪现、出生落点等。
+     * 撞到障碍物时停在表面，不会穿进去。
+     */
+    _pushActor(actor, dx, dy) {
+        const r = actor.r || 16;
+        let x = MathUtils.clamp(actor.x + dx, this._minX(r), this._maxX(r));
+        let y = MathUtils.clamp(actor.y + dy, this._minY(r), this._maxY(r));
+        const obstacles = this._obstacles();
+        if (obstacles.length && window.Collision) {
+            const pushed = window.Collision.resolve(x, y, r, obstacles);
+            x = pushed.x;
+            y = pushed.y;
+        }
+        actor.x = MathUtils.clamp(x, this._minX(r), this._maxX(r));
+        actor.y = MathUtils.clamp(y, this._minY(r), this._maxY(r));
+    }
 
     _updatePlayerMovement(dt) {
         const p = this.state.player;
@@ -692,11 +856,9 @@ class CombatSystem {
             Math.max(0.8, p.mods.speed ? window.G.speed + p.mods.speed : window.G.speed) * 60;
 
         if (p.slideTime > 0) {
-            p.x = MathUtils.clamp(p.x + p.iceDriftX * speed * dt, this._minX(p.r), this._maxX(p.r));
-            p.y = MathUtils.clamp(p.y + p.iceDriftY * speed * dt, this._minY(p.r), this._maxY(p.r));
+            this._moveActor(p, p.iceDriftX * speed * dt, p.iceDriftY * speed * dt);
         } else if (mv.length > 0.05) {
-            p.x = MathUtils.clamp(p.x + mv.x * speed * dt, this._minX(p.r), this._maxX(p.r));
-            p.y = MathUtils.clamp(p.y + mv.y * speed * dt, this._minY(p.r), this._maxY(p.r));
+            this._moveActor(p, mv.x * speed * dt, mv.y * speed * dt);
             p.facing = Math.atan2(mv.y, mv.x);
             p.walkT += dt;
         }
@@ -704,14 +866,13 @@ class CombatSystem {
         if (p.dashCd > 0) p.dashCd = Math.max(0, p.dashCd - dt);
         if (p.dashTime > 0) {
             p.dashTime -= dt;
-            p.x = MathUtils.clamp(p.x + p.dashVx * dt, this._minX(p.r), this._maxX(p.r));
-            p.y = MathUtils.clamp(p.y + p.dashVy * dt, this._minY(p.r), this._maxY(p.r));
+            this._moveActor(p, p.dashVx * dt, p.dashVy * dt);
             this.state.effects.push({ type: 'afterimage', x: p.x, y: p.y, t: 0, life: 0.25 });
         }
         if (p.mods.dashStrike && p.dashCd <= 0 && p.dashTime <= 0) {
-            const mouse = window.gameInput && window.gameInput.mouse;
-            const dx = (mouse ? mouse.x : p.x + 1) - p.x;
-            const dy = (mouse ? mouse.y : p.y) - p.y;
+            const target = this._mouseWorld();
+            const dx = target.x - p.x;
+            const dy = target.y - p.y;
             const dist = Math.hypot(dx, dy) || 1;
             p.dashVx = (dx / dist) * 500;
             p.dashVy = (dy / dist) * 500;
@@ -742,29 +903,92 @@ class CombatSystem {
         }
     }
 
+    /**
+     * 鼠标画布坐标 → 世界坐标。
+     * InputManager.mouse 是 960×540 画布像素，秘境世界还要加上相机偏移。
+     */
+    _mouseWorld() {
+        const p = this.state.player;
+        const mouse = window.gameInput && window.gameInput.mouse;
+        if (!p || !mouse) {
+            const facing = p ? (p.facing || 0) : 0;
+            return { x: p ? p.x + Math.cos(facing) * 100 : 0, y: p ? p.y + Math.sin(facing) * 100 : 0 };
+        }
+        const { W, H } = this.constants;
+        let camX = 0;
+        let camY = 0;
+        const world = this.state.dungeonWorldMode && this.state.dungeonWorld;
+        if (world) {
+            camX = MathUtils.clamp(p.x - W / 2, 0, Math.max(0, world.width - W));
+            camY = MathUtils.clamp(p.y - H / 2, 0, Math.max(0, world.height - H));
+        }
+        return { x: camX + mouse.x, y: camY + mouse.y };
+    }
+
+    /**
+     * 玩家攻击朝向 = 鼠标方向；攻击距离 = 鼠标到玩家的距离（夹在攻击范围内）。
+     * 攻击特效和命中判定都用这组 angle/reach —— 鼠标指到哪，刀光就扫到哪。
+     */
+    _aimAtMouse(maxRange) {
+        const p = this.state.player;
+        const target = this._mouseWorld();
+        const dx = target.x - p.x;
+        const dy = target.y - p.y;
+        const dist = Math.hypot(dx, dy);
+        const minReach = Math.min(p.r + 26, maxRange);
+        if (dist < 12) {
+            return { angle: p.facing || 0, reach: maxRange, dist, x: target.x, y: target.y };
+        }
+        return {
+            angle: Math.atan2(dy, dx),
+            reach: MathUtils.clamp(dist, minReach, maxRange),
+            dist,
+            x: target.x,
+            y: target.y
+        };
+    }
+
     tryAttack(isAuto = false) {
         if (window.audioManager) window.audioManager.attack();
         const p = this.state.player;
         const atkSpeed = p.attackSlowTime > 0 ? 0.5 : 1;
         p.atkCd = (0.6 / atkSpeed) * (p.mods.dashStrike ? 0.8 : 1);
         p.swinging = 0.24;
-        p.facing = Math.atan2(window.gameInput.mouse.y - p.y, window.gameInput.mouse.x - p.x);
 
-        const range = (window.G.range + (p.mods.range || 0)) * (p.mods.dashStrike ? 1.5 : 1);
+        const style = window.AttackFx ? window.AttackFx.playerStyle(p.mods) : null;
+        const maxRange = (window.G.range + (p.mods.range || 0)) * (p.mods.dashStrike ? 1.5 : 1);
+        const aim = this._aimAtMouse(maxRange);
+        // 角色朝向跟着鼠标；刀光由 AttackFx 独立绘制，不再画在角色身上
+        p.facing = aim.angle;
+
         const dmg = window.G.atk + (p.mods.atk || 0);
         const isCrit = Math.random() * 100 < (window.G.crit + (p.mods.crit || 0));
         const finalDmg = isCrit ? Math.round(dmg * 1.8) : dmg;
 
-        this._spawnSlash(p.x, p.y, p.facing, range, finalDmg, isCrit, p.mods);
+        this._spawnSlash(p.x, p.y, aim.angle, aim.reach, finalDmg, isCrit, p.mods, style);
 
         if (p.mods.doubleHit) {
-            setTimeout(() => this._spawnSlash(p.x, p.y, p.facing, range, Math.round(finalDmg * 0.7), isCrit, p.mods), 80);
+            const angle = aim.angle;
+            const reach = aim.reach;
+            setTimeout(() => this._spawnSlash(p.x, p.y, angle, reach,
+                Math.round(finalDmg * 0.7), isCrit, p.mods, style), 80);
         }
     }
 
-    _spawnSlash(x, y, angle, range, dmg, isCrit, mods) {
+    _spawnSlash(x, y, angle, reach, dmg, isCrit, mods, style) {
+        const fxStyle = style || (window.AttackFx ? window.AttackFx.playerStyle(mods) : null);
+        const arcHalf = fxStyle ? fxStyle.arc : 1.1;
+        const innerR = fxStyle ? Math.max(2, reach * fxStyle.inner) : 0;
+        const shape = fxStyle ? fxStyle.shape : 'fan';
         const slash = {
-            x, y, angle, range, dmg, isCrit,
+            x, y, angle, range: reach, dmg, isCrit,
+            // 判定几何和特效几何是同一份数据（见 AttackFx.inSector）
+            arcHalf, innerR, fx: 'player', shape,
+            width: fxStyle && fxStyle.width,
+            lanes: fxStyle && fxStyle.lanes,
+            laneGap: fxStyle && fxStyle.laneGap,
+            laneSpread: fxStyle && fxStyle.laneSpread,
+            laneHalf: fxStyle && fxStyle.laneHalf,
             pierce: !!mods.pierce,
             chain: mods.chain || 0,
             chainDmg: mods.chainDmg || 0,
@@ -778,11 +1002,33 @@ class CombatSystem {
             stunDur: mods.stunDur || 0,
             thorns: mods.thorns || 0
         };
-        const color = mods.evoBlade ? '#ffd86b'
-            : mods.elemIce ? '#8beaff'
-                : mods.elemFire ? '#ff8a4c' : '#7df9ff';
-        this.state.effects.push({ type: 'slash', x, y, a: angle, r: range, color, t: 0, life: 0.24 });
+        if (window.AttackFx) {
+            this.state.effects.push(window.AttackFx.makeEffect({
+                fx: 'player', x, y, angle, reach, arcHalf, innerR, shape,
+                width: slash.width,
+                lanes: slash.lanes,
+                laneGap: slash.laneGap,
+                laneSpread: slash.laneSpread,
+                laneHalf: slash.laneHalf,
+                pal: fxStyle && fxStyle.pal,
+                kind: fxStyle && fxStyle.kind,
+                blades: fxStyle && fxStyle.blades,
+                sweep: fxStyle && fxStyle.sweep,
+                spark: fxStyle && fxStyle.spark,
+                seeds: fxStyle && fxStyle.sparks,
+                life: fxStyle && fxStyle.life
+            }));
+        } else {
+            this.state.effects.push({ type: 'slash', x, y, a: angle, r: reach, color: '#7df9ff', t: 0, life: 0.24 });
+        }
         this.state.bullets.push(slash);
+    }
+
+    /** 怪物的实际出手距离 = 它攻击特效的半径（由体型/形状决定，不再统一 r+p.r+10） */
+    _monsterMeleeRange(monster, player) {
+        const p = player || this.state.player;
+        if (window.AttackFx && p) return window.AttackFx.reachForMonster(monster, p.r);
+        return monster.r + (p ? p.r : 16) + 10;
     }
 
     _updateMonsters(dt) {
@@ -831,6 +1077,7 @@ class CombatSystem {
                 const angle = Math.random() * Math.PI * 2;
                 m.x = MathUtils.clamp(p.x + Math.cos(angle) * 160, this._minX(m.r), this._maxX(m.r));
                 m.y = MathUtils.clamp(p.y + Math.sin(angle) * 160, this._minY(m.r), this._maxY(m.r));
+                this._pushActor(m, 0, 0);
                 m.teleportCd = Math.max(2, m.teleport);
                 this.state.effects.push({ type: 'evolution', x: m.x, y: m.y, color: '#b388e8', t: 0, life: 0.5 });
             }
@@ -862,17 +1109,15 @@ class CombatSystem {
                 m.bossCd = 2.6;
             }
 
-            const desired = m.ranged && m.keepDistance ? m.shootRange * 0.6 : m.r + p.r + 10;
+            const desired = m.ranged && m.keepDistance ? m.shootRange * 0.6 : this._monsterMeleeRange(m, p);
             const dungeonMonsterSpeed = (this.state.dungeonMods && this.state.dungeonMods.monsterSpeed) || 1;
             if (dist > desired) {
                 const moveSpeed = m.speed * 60 * dungeonMonsterSpeed;
-                m.x += dx / dist * moveSpeed * dt;
-                m.y += dy / dist * moveSpeed * dt;
+                this._moveActor(m, dx / dist * moveSpeed * dt, dy / dist * moveSpeed * dt, true);
                 m.facing = Math.atan2(dy, dx);
             } else if (m.keepDistance && dist < desired * 0.55) {
                 const moveSpeed = m.speed * 60 * dungeonMonsterSpeed;
-                m.x -= dx / dist * moveSpeed * dt;
-                m.y -= dy / dist * moveSpeed * dt;
+                this._moveActor(m, -dx / dist * moveSpeed * dt, -dy / dist * moveSpeed * dt, true);
                 m.facing = Math.atan2(dy, dx);
             } else if (!m.keepDistance && m.atkCd <= 0) {
                 m.atkCd = 1.2 / (m.speed || 1);
@@ -885,6 +1130,8 @@ class CombatSystem {
 
     _monsterShoot(monster, player, damageScale = 1) {
         const angle = Math.atan2(player.y - monster.y, player.x - monster.x);
+        const style = window.AttackFx ? window.AttackFx.styleFor(monster) : null;
+        const color = (style && style.c2) || monster.projectileColor || '#ffb86b';
         this.state.bullets.push({
             x: monster.x,
             y: monster.y,
@@ -892,15 +1139,21 @@ class CombatSystem {
             vy: Math.sin(angle) * 170,
             r: 6,
             dmg: Math.max(1, Math.round(monster.atk * damageScale)),
-            color: monster.projectileColor || '#ffb86b',
+            color,
+            // 弹体也按实体区分：骷髅是骨箭、寒魄是冰棱、其余是妖气弹
+            fx: window.AttackFx ? window.AttackFx.keyFor(monster) : null,
+            proj: style ? style.proj : 'orb',
+            pal: style ? [style.c1, style.c2, style.c3] : null,
             hostile: true,
             life: 3
         });
-        this.state.effects.push({ type: 'boom', x: monster.x, y: monster.y, color: monster.projectileColor || '#ffb86b', t: 0, life: 0.2 });
+        this.state.effects.push({ type: 'boom', x: monster.x, y: monster.y, color, t: 0, life: 0.2 });
     }
 
     _bossBurst(monster) {
         const count = 8;
+        const style = window.AttackFx ? window.AttackFx.styleFor(monster) : null;
+        const color = (style && style.c2) || this.state.bossElement || '#ff6b6b';
         for (let i = 0; i < count; i++) {
             const angle = i * Math.PI * 2 / count + Math.random() * 0.2;
             this.state.bullets.push({
@@ -910,7 +1163,10 @@ class CombatSystem {
                 vy: Math.sin(angle) * 125,
                 r: 7,
                 dmg: Math.max(1, Math.round(monster.atk * 0.65)),
-                color: this.state.bossElement || '#ff6b6b',
+                color,
+                fx: window.AttackFx ? window.AttackFx.keyFor(monster) : null,
+                proj: style ? style.proj : 'ember',
+                pal: style ? [style.c1, style.c2, style.c3] : null,
                 hostile: true,
                 life: 3.5
             });
@@ -921,20 +1177,38 @@ class CombatSystem {
         if (window.audioManager) window.audioManager.hurt();
         const dmg = monster.atk;
         monster.facing = Math.atan2(player.y - monster.y, player.x - monster.x);
-        // 怪物也有朝向玩家的爪击/挥击贴图，不再只是扣血
-        this.state.effects.push({
-            type: 'slash',
-            x: monster.x,
-            y: monster.y,
-            a: monster.facing,
-            r: Math.max(28, monster.r * 2.1),
-            color: monster.tint || '#ff6b6b',
-            monster: true,
-            t: 0,
-            life: 0.22
-        });
+        // 每种怪一套独立攻击特效；攻击距离由体型 + 样式形状决定（AI 出手距离也用同一个）
+        const style = window.AttackFx ? window.AttackFx.styleFor(monster) : null;
+        const reach = window.AttackFx
+            ? window.AttackFx.reachForMonster(monster, player.r)
+            : monster.r + player.r + 12;
+        const arcHalf = style ? style.arc : 1.1;
+        const innerR = Math.max(4, reach * (style ? style.inner : 0.2));
+        const effect = window.AttackFx
+            ? window.AttackFx.makeEffect({
+                fx: window.AttackFx.keyFor(monster),
+                x: monster.x, y: monster.y, angle: monster.facing,
+                reach, arcHalf, innerR,
+                shape: style && style.shape,
+                width: style && style.width,
+                lanes: style && style.lanes,
+                laneGap: style && style.laneGap,
+                laneSpread: style && style.laneSpread,
+                laneHalf: style && style.laneHalf,
+                life: style && style.life,
+                monster: true
+            })
+            : {
+                type: 'slash', x: monster.x, y: monster.y, a: monster.facing,
+                r: reach, arcHalf, innerR: innerR, color: '#ff6b6b', t: 0, life: 0.22
+            };
+        this.state.effects.push(effect);
+
+        // 判定与特效同源：必须落在同一块形状里才会掉血
+        const hit = !window.AttackFx || window.AttackFx.inSector(effect, player.x, player.y, player.r);
+        if (!hit) return;
+
         this.hurtPlayer(dmg);
-        window.floatText(player.x, player.y - 24, '-' + dmg, '#ff6b6b');
         if (player.mods.thorns > 0) {
             const reflect = Math.max(1, Math.round(dmg * player.mods.thorns));
             this.damageMonster(monster, { dmg: reflect });
@@ -946,13 +1220,16 @@ class CombatSystem {
 
     _summonMinion(source) {
         const dungeon = this.state.dungeon || window.DUNGEONS[0];
-        const pool = dungeon && dungeon.floorPool ? dungeon.floorPool.flat() : ['wolf'];
+        let pool = dungeon && dungeon.floorPool
+            ? dungeon.floorPool.flat().filter(id => window.MONSTERS[id] && !window.MONSTERS[id].human)
+            : ['wolf'];
+        if (!pool.length) pool = ['wolf'];
         const id = pool[Math.floor(Math.random() * pool.length)] || 'wolf';
         const base = window.MONSTERS[id];
         if (!base) return;
         const hpMul = (dungeon ? dungeon.hpScale : 1) * (1 + (this.state.floor - 1) * 0.2);
         const atkMul = (dungeon ? dungeon.atkScale : 1) * (1 + (this.state.floor - 1) * 0.12);
-        this.state.monsters.push({
+        const minion = {
             id: base.id, name: base.name, img: base.img, boss: false, elite: false,
             hp: Math.max(1, Math.round(base.hp * hpMul * 0.6)),
             maxHp: Math.max(1, Math.round(base.hp * hpMul * 0.6)),
@@ -965,7 +1242,10 @@ class CombatSystem {
             projectileColor: base.projectileColor || '#ffb86b',
             shield: 0, regen: 0, thorns: 0, explode: false,
             splitOnDeath: false, splitChild: true, teleport: 0, summonCd: 0
-        });
+        };
+        // 召唤在妖仆与主人重叠的位置，先推出障碍物避免出生就卡在墙里
+        this._pushActor(minion, 0, 0);
+        this.state.monsters.push(minion);
         this.state.effects.push({ type: 'evolution', x: source.x, y: source.y, color: '#d58bff', t: 0, life: 0.7 });
         window.floatText(source.x, source.y - source.r, '召唤妖仆', '#d58bff');
     }
@@ -1002,20 +1282,39 @@ class CombatSystem {
     }
 
     _resolveBullet(bullet) {
-        const rangeSq = bullet.range * bullet.range;
-        // 玩家挥剑是朝向前方的扇形判定，不是全圆；要和攻击贴图（slash/claw 的 8 方向张角）保持一致。
-        // 旧引擎用 ±1.1 rad（约 63°），这里沿用，避免打不到正面的怪或打中背后的怪。
-        const arcHalf = 1.1;
+        // 玩家挥剑的命中范围 = AttackFx 画出来的那块形状（扇形/突刺/环形…全部同源）。
+        // 不要退回全圆，也不要另外写死 1.1rad：刀光扫到哪，伤害就落在哪。
+        const shape = {
+            x: bullet.x,
+            y: bullet.y,
+            a: bullet.angle !== undefined ? bullet.angle : 0,
+            r: bullet.range,
+            arcHalf: Number.isFinite(bullet.arcHalf) ? bullet.arcHalf : 1.1,
+            innerR: Number.isFinite(bullet.innerR) ? bullet.innerR : 0,
+            fx: bullet.fx,
+            shape: bullet.shape,
+            width: bullet.width,
+            lanes: bullet.lanes,
+            laneGap: bullet.laneGap,
+            laneSpread: bullet.laneSpread,
+            laneHalf: bullet.laneHalf
+        };
         for (const m of this.state.monsters) {
             if (m.hp <= 0) continue;
-            const dx = m.x - bullet.x, dy = m.y - bullet.y;
-            if (dx * dx + dy * dy > rangeSq + m.r * m.r) continue;
-            if (bullet.angle !== undefined) {
-                const ang = Math.atan2(dy, dx);
-                if (Math.abs(MathUtils.angleDiff(ang, bullet.angle)) > arcHalf) continue;
-            }
+            if (!this._strikeHits(shape, m.x, m.y, m.r)) continue;
             this.damageMonster(m, bullet);
         }
+    }
+
+    /** 扇形命中（无 AttackFx 时回退到同样的几何，避免两套判定漂移） */
+    _strikeHits(shape, tx, ty, radius) {
+        if (window.AttackFx) return window.AttackFx.inSector(shape, tx, ty, radius);
+        const dx = tx - shape.x;
+        const dy = ty - shape.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > shape.r + radius || dist < shape.innerR - radius) return false;
+        const diff = Math.abs(MathUtils.angleDiff(Math.atan2(dy, dx), shape.a));
+        return diff <= shape.arcHalf;
     }
 
     damageMonster(monster, bullet) {
@@ -1054,8 +1353,8 @@ class CombatSystem {
         if (bullet.knockback > 0) {
             const fromX = monster.x, fromY = monster.y;
             const angle = Math.atan2(monster.y - bullet.y, monster.x - bullet.x);
-            monster.x = MathUtils.clamp(monster.x + Math.cos(angle) * bullet.knockback, this._minX(monster.r), this._maxX(monster.r));
-            monster.y = MathUtils.clamp(monster.y + Math.sin(angle) * bullet.knockback, this._minY(monster.r), this._maxY(monster.r));
+            // 击退走移动而不是瞬移：薄墙前会停在墙面，不会被推穿
+            this._moveActor(monster, Math.cos(angle) * bullet.knockback, Math.sin(angle) * bullet.knockback);
             this.state.effects.push({ type: 'knockback', x: fromX, y: fromY, x2: monster.x, y2: monster.y, t: 0, life: 0.22 });
         }
         if (bullet.stunChance && Math.random() * 100 < bullet.stunChance) {
@@ -1108,8 +1407,7 @@ class CombatSystem {
                     const pull = Math.min(1, (1 - pdist / (trap.radius * 1.5)) * 1.6);
                     const pullDist = 105 * pull * dt;
                     const angle = Math.atan2(trap.y - p.y, trap.x - p.x);
-                    p.x = MathUtils.clamp(p.x + Math.cos(angle) * pullDist, this._minX(p.r), this._maxX(p.r));
-                    p.y = MathUtils.clamp(p.y + Math.sin(angle) * pullDist, this._minY(p.r), this._maxY(p.r));
+                    this._moveActor(p, Math.cos(angle) * pullDist, Math.sin(angle) * pullDist);
                 }
             }
 
@@ -1158,8 +1456,7 @@ class CombatSystem {
                 }
                 if (trap.knockback) {
                     const angle = Math.atan2(p.y - trap.y, p.x - trap.x);
-                    p.x = MathUtils.clamp(p.x + Math.cos(angle) * trap.knockback, this._minX(p.r), this._maxX(p.r));
-                    p.y = MathUtils.clamp(p.y + Math.sin(angle) * trap.knockback, this._minY(p.r), this._maxY(p.r));
+                    this._moveActor(p, Math.cos(angle) * trap.knockback, Math.sin(angle) * trap.knockback);
                 }
                 trap.playerNextHit = this.state.time + (trap.poison ? 1.05 : 1.4);
                 window.floatText(p.x, p.y - 24, '⚠ ' + trap.name + ' -' + dmg, trap.color);
@@ -1185,8 +1482,7 @@ class CombatSystem {
                 if (trap.shock) { m.stunCd = Math.max(m.stunCd || 0, trap.shock * 0.7); m.controlEffect = 'stun'; }
                 if (trap.knockback) {
                     const angle = Math.atan2(m.y - trap.y, m.x - trap.x);
-                    m.x = MathUtils.clamp(m.x + Math.cos(angle) * trap.knockback * 0.8, this._minX(m.r), this._maxX(m.r));
-                    m.y = MathUtils.clamp(m.y + Math.sin(angle) * trap.knockback * 0.8, this._minY(m.r), this._maxY(m.r));
+                    this._moveActor(m, Math.cos(angle) * trap.knockback * 0.8, Math.sin(angle) * trap.knockback * 0.8);
                 }
                 const element = trap.type === 'ice' ? 'ice' : trap.type === 'fire' ? 'fire' :
                     trap.type === 'roots' ? 'roots' : trap.type === 'rune' ? 'seal' :
@@ -1344,8 +1640,7 @@ class CombatSystem {
                     this.hurtPlayer(m.atk);
                     const angle = Math.atan2(p.y - m.y, p.x - m.x);
                     const kb = 40;
-                    p.x = MathUtils.clamp(p.x + Math.cos(angle) * kb, this._minX(p.r), this._maxX(p.r));
-                    p.y = MathUtils.clamp(p.y + Math.sin(angle) * kb, this._minY(p.r), this._maxY(p.r));
+                    this._moveActor(p, Math.cos(angle) * kb, Math.sin(angle) * kb);
                     p.invuln = 0.5;
                 }
             }
@@ -1365,7 +1660,8 @@ class CombatSystem {
     hurtPlayer(damage) {
         const p = this.state.player;
         const dungeonTaken = (this.state.dungeonMods && this.state.dungeonMods.damageTaken) || 1;
-        let actualDmg = Math.max(1, Math.round(damage * dungeonTaken));
+        const talentReduce = (window.G.flags && window.G.flags.damageReduce) || 0;
+        let actualDmg = Math.max(1, Math.round(damage * dungeonTaken * (1 - talentReduce)));
 
         if (p.shield > 0) {
             const blocked = Math.min(p.shield, actualDmg);
@@ -1411,11 +1707,20 @@ class CombatSystem {
         monster._dead = true;
         if (window.audioManager) window.audioManager.hit();
         window.G.flags.kills = (window.G.flags.kills || 0) + 1;
+        if (monster.human) window.G.flags.humanKills = (window.G.flags.humanKills || 0) + 1;
         window.checkAchievements();
         if (this.state.dungeonWorldMode) {
             this.state.floorKills = (this.state.floorKills || 0) + 1;
             if (monster.boss) this.state.floorBossKilled = true;
             this._checkDungeonExitUnlock();
+        }
+        // 击杀奖励修为；人形敌手额外给更多战利品
+        const cultReward = Math.max(1, Math.round((monster.cult || 5) * (1 + this.state.floor * 0.08)));
+        if (typeof window.gainCultivation === 'function') window.gainCultivation(cultReward);
+        else window.G.cultivation += cultReward;
+        if (typeof window.floatText === 'function') {
+            window.floatText(monster.x, monster.y - monster.r - 8,
+                '🌀+' + cultReward + (monster.human ? ' 人形敌手' : ''), monster.human ? '#ffb3c0' : '#8ef2e7');
         }
         this._dropLoot(monster);
 
@@ -1469,7 +1774,9 @@ class CombatSystem {
 
     _dropLoot(monster) {
         const isBoss = !!monster.boss;
-        const stones = isBoss ? 25 + this.state.floor * 5 : 1 + Math.floor(Math.random() * 3);
+        const luck = (window.G.flags && window.G.flags.luck) || 0;
+        const stoneBase = isBoss ? 25 + this.state.floor * 5 : 1 + Math.floor(Math.random() * 3);
+        const stones = Math.max(1, Math.round((stoneBase + (monster.human ? 3 : 0)) * (1 + luck)));
         if (typeof window.addSpiritStones === 'function') window.addSpiritStones(stones);
         if (isBoss && typeof window.addSectContribution === 'function') {
             window.addSectContribution((window.SECT && window.SECT.contributionPerBoss) || 25);
@@ -1481,7 +1788,8 @@ class CombatSystem {
         if (this.state.dungeonId === 'frost' || this.state.dungeonId === 'nether') pool.push('crystal_ice');
         if (isBoss) pool.push('jade_slip', 'sect_token');
 
-        if (isBoss || Math.random() < 0.18) {
+        const dropChance = (isBoss ? 1 : 0.18) + (monster.human ? 0.16 : 0) + luck * 0.12;
+        if (isBoss || Math.random() < dropChance) {
             const itemId = isBoss
                 ? (Math.random() < 0.5 ? 'jade_slip' : 'sect_token')
                 : pool[Math.floor(Math.random() * pool.length)];
@@ -1574,6 +1882,8 @@ class CombatSystem {
             const dy = p.y - m.y;
             const dist = Math.hypot(dx, dy) || 1;
             const monsterVision = m.vision || 200;
+            // 出手距离 = 攻击特效半径（每种怪不同：爪击贴身、骨矛长刺、Boss 巨口……）
+            const meleeRange = this._monsterMeleeRange(m, p);
 
             // 更新定时器
             if (m.atkCd > 0) m.atkCd -= dt;
@@ -1604,8 +1914,7 @@ class CombatSystem {
                     const wdy = m.wanderTarget.y - m.y;
                     const wdist = Math.hypot(wdx, wdy) || 1;
                     if (wdist > 10) {
-                        m.x += (wdx / wdist) * m.speed * 40 * dt;
-                        m.y += (wdy / wdist) * m.speed * 40 * dt;
+                        this._moveActor(m, (wdx / wdist) * m.speed * 40 * dt, (wdy / wdist) * m.speed * 40 * dt, true);
                         m.facing = Math.atan2(wdy, wdx);
                     }
 
@@ -1619,14 +1928,14 @@ class CombatSystem {
 
                 case 'chase': {
                     // 追击玩家
-                    if (dist > m.r + p.r + 20) {
-                        // 远距离：移动向玩家
-                        m.x += (dx / dist) * m.speed * 50 * dt;
-                        m.y += (dy / dist) * m.speed * 50 * dt;
+                    if (dist > meleeRange) {
+                        // 远距离：移动向玩家（被地标挡住时绕行）
+                        this._moveActor(m, (dx / dist) * m.speed * 50 * dt, (dy / dist) * m.speed * 50 * dt, true);
                         m.facing = Math.atan2(dy, dx);
                     } else {
                         // 接近玩家：进入攻击状态
                         m.state = 'attack';
+                        m.facing = Math.atan2(dy, dx);
                     }
 
                     // 失去视野 -> 尝试走向最后看到的位置
@@ -1635,8 +1944,7 @@ class CombatSystem {
                         const ldy = m.lastSeenPlayer.y - m.y;
                         const ldist = Math.hypot(ldx, ldy) || 1;
                         if (ldist > 20) {
-                            m.x += (ldx / ldist) * m.speed * 40 * dt;
-                            m.y += (ldy / ldist) * m.speed * 40 * dt;
+                            this._moveActor(m, (ldx / ldist) * m.speed * 40 * dt, (ldy / ldist) * m.speed * 40 * dt, true);
                         } else {
                             // 到达最后位置仍未找到 -> 返回游荡
                             m.state = 'return';
@@ -1652,15 +1960,20 @@ class CombatSystem {
                 }
 
                 case 'attack': {
-                    // 近战攻击
-                    if (dist <= m.r + p.r + 10 && m.atkCd <= 0) {
-                        this.hurtPlayer(m.atk);
-                        m.atkCd = 1.2 / (m.speed || 1);
-                        this.state.effects.push({ type: 'slash', x: m.x, y: m.y, angle: m.facing, color: m.tint, t: 0, life: 0.25 });
+                    m.facing = Math.atan2(dy, dx);
+                    // 近战攻击：在攻击距离内才出手；略微超出就继续贴脸，
+                    // 不能像旧逻辑那样站在攻击距离外原地不动（玩家不动时永远打不到）。
+                    if (dist <= meleeRange) {
+                        if (m.atkCd <= 0) {
+                            this._monsterAttack(m, p);
+                            m.atkCd = 1.2 / (m.speed || 1);
+                        }
+                    } else {
+                        this._moveActor(m, (dx / dist) * m.speed * 45 * dt, (dy / dist) * m.speed * 45 * dt, true);
                     }
 
                     // 如果玩家跑远了 -> 回到追击
-                    if (dist > m.r + p.r + 40) {
+                    if (dist > meleeRange + 30) {
                         m.state = 'chase';
                     }
                     break;
@@ -1672,8 +1985,7 @@ class CombatSystem {
                     const rdy = m.homeY - m.y;
                     const rdist = Math.hypot(rdx, rdy) || 1;
                     if (rdist > 20) {
-                        m.x += (rdx / rdist) * m.speed * 40 * dt;
-                        m.y += (rdy / rdist) * m.speed * 40 * dt;
+                        this._moveActor(m, (rdx / rdist) * m.speed * 40 * dt, (rdy / rdist) * m.speed * 40 * dt, true);
                         m.facing = Math.atan2(rdy, rdx);
                     } else {
                         m.state = 'wander';
@@ -1695,8 +2007,10 @@ class CombatSystem {
             if (m.blink && m.state === 'chase' && dist > 150 && m.atkCd <= 0 && Math.random() < 0.01) {
                 // 闪现到玩家身后
                 const angle = Math.atan2(dy, dx) + Math.PI;
-                m.x = p.x + Math.cos(angle) * 50;
-                m.y = p.y + Math.sin(angle) * 50;
+                m.x = MathUtils.clamp(p.x + Math.cos(angle) * 50, this._minX(m.r), this._maxX(m.r));
+                m.y = MathUtils.clamp(p.y + Math.sin(angle) * 50, this._minY(m.r), this._maxY(m.r));
+                // 闪现落点可能在墙里：推出来，别让怪物卡在障碍物中
+                this._pushActor(m, 0, 0);
                 m.atkCd = 3.0;
                 this.state.effects.push({ type: 'blink', x: m.x, y: m.y, t: 0, life: 0.3 });
             }
@@ -1718,14 +2032,19 @@ class CombatSystem {
     }
 
     getDungeonHint() {
+        if (this.state.duel) {
+            if (this.state.floorExitUnlocked) return '⚔️ 对手已败，正在收场';
+            const name = this.state.duelNpc ? this.state.duelNpc.name : '对手';
+            return '⚔️ 一对一决斗：击败 ' + name + '（血量归零即胜，无需前往出口）';
+        }
         if (this.state.floorExitUnlocked) {
             return '🏁 出口已开启：靠近出口进入下一层 · 靠近 NPC 按 E 交谈';
         }
         const need = Math.max(0, (this.state.floorKillTarget || 0) - (this.state.floorKills || 0));
         const parts = [];
-        if (need > 0) parts.push('还需击败 ' + need + ' 只妖兽');
         if (this.state.floorHasBoss && !this.state.floorBossKilled) parts.push('击败首领');
-        return '🔒 出口封印：' + (parts.join(' · ') || '清剿剩余妖兽') + ' · 靠近 NPC 按 E 交谈';
+        if (need > 0) parts.push('还需击败 ' + need + ' 名敌手');
+        return '🔒 出口封印：' + (parts.join(' · ') || '清剿剩余敌手') + ' · 靠近 NPC 按 E 交谈';
     }
 
     _checkDungeonExitUnlock() {
@@ -1735,7 +2054,12 @@ class CombatSystem {
         const bossDone = !this.state.floorHasBoss || this.state.floorBossKilled;
         if (!enough || !bossDone) return;
         this.state.floorExitUnlocked = true;
-        window.toast('🏁 妖气消散，秘境出口开启', 'gold');
+        if (this.state.duel) {
+            this.state.duelClearTimer = 1.1;
+            window.toast('⚔️ 对手已败，收剑。', 'gold');
+        } else {
+            window.toast('🏁 妖气消散，秘境出口开启', 'gold');
+        }
         if (this.state.dungeonWorld && this.state.dungeonWorld.exit) {
             this.state.effects.push({
                 type: 'boom', x: this.state.dungeonWorld.exit.x, y: this.state.dungeonWorld.exit.y,
@@ -1761,7 +2085,7 @@ class CombatSystem {
                 if (this.state.time - (this.state.exitLockToastAt || 0) > 2.5) {
                     const need = Math.max(0, (this.state.floorKillTarget || 0) - (this.state.floorKills || 0));
                     let message = '🔒 出口被妖气封印';
-                    if (need > 0) message += '：还需击败 ' + need + ' 只妖兽';
+                    if (need > 0) message += '：还需击败 ' + need + ' 名敌手';
                     if (this.state.floorHasBoss && !this.state.floorBossKilled) {
                         message += (need > 0 ? ' · ' : '：') + '首领未伏诛';
                     }

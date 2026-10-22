@@ -24,6 +24,7 @@ globalThis.Image = class {
 window.Image = globalThis.Image;
 
 await import('../js/engine/utils/MathUtils.js');
+await import('../js/engine/utils/Collision.js');
 await import('../js/engine/utils/ObjectPool.js');
 await import('../js/engine/core/EventBus.js');
 await import('../js/engine/core/GameState.js');
@@ -31,7 +32,7 @@ await import('../js/engine/core/InputManager.js');
 await import('../js/engine/utils/AssetLoader.js');
 await import('../js/engine/systems/CardSystem.js');
 
-const { MathUtils, SeededRandom, ObjectPool, PoolTypes, EventBus, GameState, InputManager, AssetLoader, CardSystem } = globalThis;
+const { MathUtils, Collision, SeededRandom, ObjectPool, PoolTypes, EventBus, GameState, InputManager, AssetLoader, CardSystem } = globalThis;
 
 test('MathUtils: clamp / distance / angleDiff', () => {
     assert.equal(MathUtils.clamp(12, 0, 10), 10);
@@ -161,6 +162,44 @@ test('CardSystem: 诅咒占用玩家/妖魔一张卡位，不生成第三列', (
     assert.equal(system._pendingPlayerCards.filter(c => c.curseOccupied).length, 1);
     assert.equal(system._pendingPlayerCards[0].id, 'pc');
     assert.equal(system._pendingCurseCards.length, 0);
+});
+
+test('Collision: solid 地标挡路、可贴墙滑动、能推出重叠', () => {
+    const obstacles = Collision.build([
+        { type: 'broken-wall', solid: true, x: 100, y: 100, w: 80, h: 40, turn: 0 },
+        { type: 'pool', solid: false, x: 300, y: 100, w: 80, h: 40, turn: 0 }
+    ]);
+    assert.equal(obstacles.length, 1, '非 solid 地标不该生成碰撞体');
+
+    // 从墙上方往下撞：纵向挡住
+    const blocked = Collision.move(100, 60, 0, 10, 16, obstacles);
+    assert.equal(blocked.x, 100);
+    assert.equal(blocked.y, 60);
+    // 斜着撞：允许沿墙横移
+    const slide = Collision.move(100, 60, 8, 10, 16, obstacles);
+    assert.ok(slide.x > 100);
+    assert.equal(slide.y, 60);
+    // 陷进墙里会被推到最近的表面
+    const out = Collision.resolve(100, 100, 16, obstacles);
+    assert.equal(Collision.hits(out.x, out.y, 16, obstacles), false);
+    assert.ok(Math.abs(out.y - 136) < 1e-6);
+    // 旋转矩形按 turn 判定
+    const rotated = Collision.build([
+        { type: 'obelisk', solid: true, x: 0, y: 0, w: 100, h: 40, turn: Math.PI / 2 }
+    ]);
+    assert.equal(Collision.hits(0, 40, 10, rotated), true);
+    assert.equal(Collision.hits(40, 0, 10, rotated), false);
+});
+
+test('Collision: AI 正面被挡死时会绕行', () => {
+    const obstacles = Collision.build([
+        { type: 'broken-wall', solid: true, x: 100, y: 100, w: 80, h: 40, turn: 0 }
+    ]);
+    const direct = Collision.move(100, 60, 0, 10, 16, obstacles);
+    assert.equal(direct.y, 60);
+    const steered = Collision.steer(100, 60, 0, 10, 16, obstacles);
+    assert.ok(Math.hypot(steered.x - 100, steered.y - 60) > 1);
+    assert.equal(Collision.hits(steered.x, steered.y, 16, obstacles), false);
 });
 
 test('AssetLoader: 加载 / 缓存 / 失败返回 null', async () => {

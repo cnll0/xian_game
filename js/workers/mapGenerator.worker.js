@@ -207,11 +207,13 @@ function generateFloorLandmarks(floor, mapSeed, W, H, PAD, theme) {
             if (!found) continue;
         }
 
+        const isSolid = SOLID_LANDMARK_TYPES.includes(type);
+        const turnAngle = random() * Math.PI * 2;
         landmarks.push({
             type,
-            solid: SOLID_LANDMARK_TYPES.includes(type),
+            solid: isSolid,
             x, y, w, h,
-            turn: random() * Math.PI * 2,
+            turn: isSolid ? 0 : turnAngle,
             color: colors[Math.floor(random() * colors.length)],
             phase: random() * Math.PI * 2
         });
@@ -405,11 +407,13 @@ function generateDungeonWorldLandmarks(dungeon, floor, mapSeed, W, H) {
 
         if (!isAvailable(x, y)) continue;
 
+        const isSolid = DUNGEON_SOLID_LANDMARK_TYPES.includes(type);
+        const turnAngle = random() * Math.PI * 2;
         landmarks.push({
             type,
-            solid: DUNGEON_SOLID_LANDMARK_TYPES.includes(type),
+            solid: isSolid,
             x, y, w, h,
-            turn: random() * Math.PI * 2,
+            turn: isSolid ? 0 : turnAngle,
             color: colors[Math.floor(random() * colors.length)],
             phase: random() * Math.PI * 2
         });
@@ -474,11 +478,49 @@ function generateDungeonWorldCreatures(dungeon, floor, mapSeed, W, H) {
         slimelet: { id: 'slimelet', name: '软泥幼体', img: 'bat', hp: 18, atk: 5, speed: 2.5, r: 10, draw: 30, vision: 120, tint: '#9be8bd' },
         frostwitch: { id: 'frostwitch', name: '寒魄妖姬', img: 'skeleton', hp: 62, atk: 12, speed: 1.0, r: 17, draw: 54, vision: 230, ranged: true, keepDistance: true, shootRange: 280, shootCd: 2.8, projectileColor: '#8cecff', slow: 1.4, tint: '#8cecff' },
         elite: { id: 'elite', name: '魔将·血煞', img: 'elite', hp: 220, atk: 22, speed: 1.7, r: 26, draw: 72, vision: 250, elite: true },
-        boss: { id: 'boss', name: '赤鳞蟒', img: 'boss', hp: 650, atk: 20, speed: 1.35, r: 42, draw: 120, vision: 300, boss: true }
+        boss: { id: 'boss', name: '赤鳞蟒', img: 'boss', hp: 650, atk: 20, speed: 1.35, r: 42, draw: 120, vision: 300, boss: true, cult: 120 },
+        qingyunBoss: { id: 'qingyunBoss', name: '赤鳞蟒', img: 'boss', hp: 310, atk: 12, speed: 1.05, r: 38, draw: 108, vision: 280, boss: true, cult: 60 },
+        emberBoss: { id: 'emberBoss', name: '熔岩地龙', img: 'boss', hp: 720, atk: 18, speed: 1.15, r: 40, draw: 116, vision: 300, boss: true, tint: '#ed8549', cult: 100 },
+        frostBoss: { id: 'frostBoss', name: '寒潭蛟王', img: 'boss', hp: 1050, atk: 24, speed: 1.25, r: 42, draw: 120, vision: 320, boss: true, tint: '#81dcf3', cult: 150 },
+        netherBoss: { id: 'netherBoss', name: '幽墟镇墓兽', img: 'boss', hp: 1450, atk: 29, speed: 1.4, r: 44, draw: 126, vision: 350, boss: true, tint: '#b388e8', cult: 210 },
+        bandit: { id: 'bandit', name: '拦路山匪', img: 'npcSprites', art: 'bandit', human: true, faction: '山匪', hp: 52, atk: 9, speed: 2.4, r: 16, draw: 64, cult: 14, vision: 210, tint: '#c79a65' },
+        cultist: { id: 'cultist', name: '魔道散修', img: 'npcSprites', art: 'cultist', human: true, faction: '魔道', hp: 64, atk: 12, speed: 2.6, r: 16, draw: 66, cult: 20, vision: 240, tint: '#c96a72' },
+        ronin: { id: 'ronin', name: '浪人剑客', img: 'npcSprites', art: 'ronin', human: true, faction: '散修', hp: 78, atk: 14, speed: 2.9, r: 17, draw: 68, cult: 24, vision: 260, tint: '#9fb2c9' },
+        fire_cultist: { id: 'fire_cultist', name: '赤炎邪修', img: 'npcSprites', art: 'cultist', human: true, faction: '魔道', hp: 70, atk: 14, speed: 2.5, r: 16, draw: 66, cult: 24, vision: 250, tint: '#e88a50' },
+        demon_spy: { id: 'demon_spy', name: '魔道探子', img: 'npcSprites', art: 'assassin', human: true, faction: '魔道', hp: 72, atk: 15, speed: 3.1, r: 16, draw: 64, cult: 28, vision: 280, tint: '#b46a8a' },
+        shadow_assassin: { id: 'shadow_assassin', name: '影杀', img: 'npcSprites', art: 'assassin', human: true, faction: '幽冥宗', hp: 82, atk: 17, speed: 3.4, r: 15, draw: 62, cult: 32, vision: 300, blink: true, tint: '#8f6fd0' },
+        ice_sword: { id: 'ice_sword', name: '寒潭剑仆', img: 'npcSprites', art: 'guqinghan', human: true, faction: '守境一脉', hp: 86, atk: 16, speed: 2.8, r: 16, draw: 66, cult: 30, vision: 270, tint: '#8ecfe6' },
+        frost_guardian: { id: 'frost_guardian', name: '守境人', img: 'npcSprites', art: 'hanxing', human: true, faction: '守境一脉', hp: 100, atk: 15, speed: 2.3, r: 18, draw: 70, cult: 34, vision: 260, tint: '#9fe7f2' },
+        sword_master: { id: 'sword_master', name: '剑术教习', img: 'npcSprites', art: 'zhaotieyi', human: true, faction: '青云门', hp: 96, atk: 17, speed: 2.7, r: 17, draw: 68, cult: 30, vision: 280, tint: '#d6c08a' },
+        guardian: { id: 'guardian', name: '青云护院', img: 'npcSprites', art: 'ashi', human: true, faction: '青云门', hp: 110, atk: 13, speed: 2.1, r: 18, draw: 70, cult: 24, vision: 240, tint: '#a8b6c4' },
+        soul_reaper: { id: 'soul_reaper', name: '引魂人', img: 'npcSprites', art: 'jichang', human: true, faction: '幽冥宗', hp: 104, atk: 19, speed: 2.6, r: 17, draw: 68, cult: 40, vision: 290, tint: '#b99de6' }
     };
 
     const validPool = pool.filter(id => MONSTER_DATA[id] && !MONSTER_DATA[id].boss);
-    if (validPool.length === 0) validPool.push('wolf');
+    const bossPool = pool.filter(id => MONSTER_DATA[id] && MONSTER_DATA[id].boss);
+    if (validPool.length === 0 && bossPool.length === 0) validPool.push('wolf');
+
+    // Boss 层：只生成一只首领
+    if (bossPool.length) {
+        const boss = MONSTER_DATA[bossPool[Math.floor(random() * bossPool.length)]];
+        const hpMul = dungeon.hpScale * (1 + (floor - 1) * 0.25);
+        const atkMul = dungeon.atkScale * (1 + (floor - 1) * 0.12);
+        return [{
+            id: boss.id, name: boss.name, img: boss.img, x: W / 2, y: H * 0.26,
+            homeX: W / 2, homeY: H * 0.26,
+            hp: Math.round(boss.hp * hpMul), maxHp: Math.round(boss.hp * hpMul),
+            atk: Math.round(boss.atk * atkMul), speed: boss.speed,
+            r: boss.r, draw: boss.draw, tint: boss.tint || '#a9aa83',
+            vision: boss.vision || 300, cult: boss.cult || 60, human: false,
+            phase: random() * Math.PI * 2, bob: random() * Math.PI * 2,
+            state: 'wander', target: null, lastSeenPlayer: null,
+            ranged: !!boss.ranged, keepDistance: !!boss.keepDistance,
+            shootRange: boss.shootRange || 0, shootCd: boss.shootCd || 2.5,
+            shootTimer: random() * 2, projectileColor: boss.projectileColor || '#ffb86b',
+            healer: !!boss.healer, charge: !!boss.charge, blink: !!boss.blink,
+            elite: true, boss: true
+        }];
+    }
 
     const baseCount = dungeon.id === 'qingyun' ? 8 : dungeon.id === 'nether' ? 14 : 10;
     const count = baseCount + Math.floor(floor * 1.2);
@@ -520,6 +562,10 @@ function generateDungeonWorldCreatures(dungeon, floor, mapSeed, W, H) {
             draw: monster.draw,
             tint: monster.tint || '#a9aa83',
             vision: monster.vision || 200,
+            cult: monster.cult || 5,
+            human: !!monster.human,
+            art: monster.art || null,
+            faction: monster.faction || '',
             phase: random() * Math.PI * 2,
             bob: random() * Math.PI * 2,
             state: 'wander',

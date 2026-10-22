@@ -779,3 +779,64 @@ body {
     #dualCardOverlay .dual-cards { grid-template-columns: 1fr; }
     #dualCardOverlay .dual-card-box { width: 96vw; }
 }
+/* ===== 天命推演 / 随机出身与天赋 ===== */
+.create-box { max-width: 680px !important; }
+.fate-grid { display: block; }
+.fate-reveal {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px; margin: 18px 0 12px; width: 100%;
+}
+.fate-reveal .origin-card {
+    cursor: default; text-align: left; min-height: 178px;
+    display: flex; flex-direction: column; align-items: flex-start;
+    background: linear-gradient(160deg, #fffdf6, #f3ead6);
+}
+.fate-reveal .origin-card:hover { transform: none; }
+.fate-reveal .origin-card.selected { box-shadow: 0 8px 22px rgba(184,134,11,0.22); }
+.fate-talent.rarity-uncommon { border-color: #7fa8c9; background: linear-gradient(160deg,#f8fcff,#e8f2f8); }
+.fate-talent.rarity-rare { border-color: #b08ad4; background: linear-gradient(160deg,#fbf7ff,#efe4fb); }
+.fate-talent.rarity-epic { border-color: #d4a03f; background: linear-gradient(160deg,#fffaf0,#f8e3b8); box-shadow: 0 0 22px rgba(212,160,63,0.3); }
+.fate-tag {
+    margin-top: auto; font-size: 10px; letter-spacing: .12em;
+    color: #7c6032; background: rgba(184,134,11,0.14);
+    border-radius: 8px; padding: 3px 9px;
+}
+.fate-note {
+    font-size: 12px; line-height: 1.65; color: var(--text-light);
+    background: rgba(184,134,11,0.08); border-radius: 10px; padding: 9px 12px; margin-bottom: 12px;
+}
+.fate-actions { display: flex; gap: 10px; align-items: stretch; }
+.fate-actions .btn-primary,
+.fate-actions .btn-secondary { flex: 1 1 0; width: auto; margin-top: 0; }
+.fate-actions .btn-secondary {
+    background: linear-gradient(135deg, #efe4cf, #ddccb0); color: #5d4524;
+    border: 1px solid #c8b28a; font-size: 14px;
+}
+.fate-actions .btn-secondary:hover { background: linear-gradient(135deg, #f7eedd, #e5d5bc); }
+@keyframes fateReshuffle {
+    0% { opacity: 0.15; transform: translateY(7px) scale(0.985); filter: blur(2px); }
+    65% { opacity: 1; transform: translateY(0) scale(1.008); filter: blur(0); }
+    100% { transform: none; }
+}
+.fate-reshuffle .origin-card { animation: fateReshuffle 0.34s ease-out both; }
+.fate-reshuffle .origin-card:nth-child(2) { animation-delay: 0.05s; }
+.hud-fate {
+    font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 10px;
+    background: rgba(184,134,11,0.22); color: #ffe2a8; cursor: help; white-space: nowrap;
+}
+.hud-fate.rarity-rare { background: rgba(150,110,220,0.3); color: #e6d6ff; }
+.hud-fate.rarity-epic { background: rgba(212,160,63,0.35); color: #fff2c9; }
+.option-btn.fate-option {
+    border-color: #c8a85a !important;
+    background: linear-gradient(135deg, #fff9ea, #f4e7c8) !important;
+}
+.option-btn.duel-option {
+    border-color: #b25a5a !important;
+    background: linear-gradient(135deg, #fff1ef, #f3d7d5) !important;
+    color: #8e3b3b !important; font-weight: 700;
+}
+@media (max-width: 620px) {
+    .fate-reveal { grid-template-columns: 1fr; }
+    .create-box { max-width: 94vw !important; }
+    .fate-actions { flex-direction: column; }
+}

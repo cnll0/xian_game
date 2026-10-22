@@ -4,6 +4,32 @@ function getStoryNode(id) {
     return window.STORIES.find(s => s.id === id);
 }
 
+function getOriginDef(id) {
+    return (window.ORIGINS || []).find(item => item.id === (id || G.origin)) || null;
+}
+
+function getTalentDef(id) {
+    return (window.TALENTS || []).find(item => item.id === (id || G.talent)) || null;
+}
+
+/**
+ * 剧情选项的命格门槛：requiresOrigin / requiresTalent / requiresFlag。
+ * 不满足条件的选项不渲染，但原始下标保持不变，chooseStoryOption 仍能取到正确项。
+ */
+function fateOptionAvailable(opt) {
+    if (!opt) return false;
+    if (opt.requiresOrigin && opt.requiresOrigin.indexOf(G.origin) < 0) return false;
+    if (opt.requiresTalent && opt.requiresTalent.indexOf(G.talent) < 0) return false;
+    if (opt.requiresFlag && !(G.flags && G.flags[opt.requiresFlag])) return false;
+    if (opt.excludeOrigin && opt.excludeOrigin.indexOf(G.origin) >= 0) return false;
+    if (opt.excludeTalent && opt.excludeTalent.indexOf(G.talent) >= 0) return false;
+    return true;
+}
+
+window.getOriginDef = getOriginDef;
+window.getTalentDef = getTalentDef;
+window.fateOptionAvailable = fateOptionAvailable;
+
 function getStoryDungeonId(storyId) {
     if (storyId === 's2') return 'qingyun';
     if (storyId === 's4' || storyId === 's6') return 'ember';
@@ -47,7 +73,10 @@ window.learnDungeonTechnique = function (dungeonId) {
 function getNpcRelation(npc) {
     if (!G.npcRelations) G.npcRelations = {};
     if (typeof G.npcRelations[npc.id] !== 'number') {
-        G.npcRelations[npc.id] = npc.attitude === 'friendly' ? 24 : npc.attitude === 'hostile' ? -32 : 0;
+        let base = npc.attitude === 'friendly' ? 24 : npc.attitude === 'hostile' ? -32 : 0;
+        const notoriety = (G.flags && G.flags.notoriety) || 0;
+        if (notoriety && /青云|守境/.test(npc.faction || '')) base -= notoriety;
+        G.npcRelations[npc.id] = Math.max(-100, Math.min(100, base));
     }
     return G.npcRelations[npc.id];
 }
@@ -60,11 +89,48 @@ function npcRelationLabel(score) {
     return { label: '中立', className: '' };
 }
 
+/** 命格会让 NPC 的第一印象不同：只影响一次，且写入存档。 */
+function getFateNpcLine(npc) {
+    const origin = getOriginDef();
+    const talent = getTalentDef();
+    const faction = (npc && npc.faction) || '';
+    const righteous = /青云|守境/.test(faction);
+    if (talent && talent.id === 'demonbone' && righteous) return '（你身上未散的煞气让对方按住了兵器。）';
+    if (talent && talent.id === 'spiritroot') return '（对方察觉你周身灵气异常纯净，语气缓和了几分。）';
+    if (talent && talent.id === 'lucky') return '（一阵风恰好吹散云雾，气氛松了下来。）';
+    if (origin && origin.id === 'orphan') return '（你衣着寒酸却目光清正，对方不由得多看了你一眼。）';
+    if (origin && origin.id === 'scholar') return '（你言辞有礼，对方的神色缓和了些。）';
+    if (origin && origin.id === 'noble') return '（对方似乎认出了你袖口的旧族纹。）';
+    if (origin && origin.id === 'merchant') return '（你袖口的算珠声让对方挑了挑眉。）';
+    if (origin && origin.id === 'hunter') return '（对方嗅到你身上淡淡的松脂与兽血味，点了点头。）';
+    return '';
+}
+
+function applyFateNpcImpression(npc) {
+    if (!npc || !npc.id) return 0;
+    if (!G.flags) G.flags = {};
+    if (!G.npcRelations) G.npcRelations = {};
+    const key = 'npcFate_' + npc.id;
+    if (G.flags[key]) return 0;
+    G.flags[key] = 1;
+    const origin = getOriginDef();
+    const talent = getTalentDef();
+    const faction = npc.faction || '';
+    let favor = 0;
+    if (talent && talent.id === 'demonbone' && /青云|守境/.test(faction)) favor = -5;
+    else if (origin && (origin.id === 'scholar' || origin.id === 'noble') && /青云/.test(faction)) favor = 2;
+    else if (origin && origin.id === 'orphan' && npc.attitude === 'friendly') favor = 2;
+    else if (origin && origin.id === 'merchant' && npc.id === 'linyue') favor = 2;
+    if (favor) G.npcRelations[npc.id] = Math.max(-100, Math.min(100, getNpcRelation(npc) + favor));
+    return favor;
+}
+
 function showNpcDialog(npc, line, hideChoices) {
     if (!npc) return;
     // 兜底：旧数据可能只有 npcId 或 name，补一个稳定 id 供关系/选项记录使用
     if (!npc.id) npc.id = npc.npcId || npc.name || 'unknown';
     Engine.pauseForNpcDialog();
+    applyFateNpcImpression(npc);
     let score = getNpcRelation(npc);
     let relation = npcRelationLabel(score);
     let portrait = $('npcPortrait');
@@ -94,7 +160,9 @@ function showNpcDialog(npc, line, hideChoices) {
     $('npcFaction').textContent = npc.faction || '未知';
     $('npcName').textContent = npc.name || '未知';
     $('npcTitle').textContent = npc.title || '';
-    $('npcDialogue').textContent = line || npc.greeting || '……';
+    const fateLine = getFateNpcLine(npc);
+    const bodyLine = line || npc.greeting || '……';
+    $('npcDialogue').textContent = (fateLine ? fateLine + '\n' : '') + bodyLine;
     let badge = $('npcRelation');
     badge.textContent = relation.label;
     badge.className = 'npc-relation' + (relation.className ? ' ' + relation.className : '');
@@ -108,6 +176,19 @@ function showNpcDialog(npc, line, hideChoices) {
         button.addEventListener('click', () => chooseNpcOption(npc, choice, index));
         options.appendChild(button);
     });
+    // 人形对手：任何有战斗数据的 NPC 都可以切磋/动手，不再只能打妖兽
+    if (!hideChoices && !npc.dungeonEncounter && npc.combatStats && typeof Engine.startNpcDuel === 'function') {
+        const hostile = score <= -8 || npc.attitude === 'hostile';
+        let duelButton = document.createElement('button');
+        duelButton.type = 'button';
+        duelButton.className = 'option-btn duel-option';
+        duelButton.textContent = hostile ? '⚔️ 拔剑相向，分个高下' : '⚔️ 请求切磋，点到为止';
+        duelButton.addEventListener('click', () => {
+            closeNpcDialog();
+            Engine.startNpcDuel(npc.id);
+        });
+        options.appendChild(duelButton);
+    }
     showOverlay('npcOverlay');
 }
 
@@ -189,7 +270,7 @@ function showDungeonSelector() {
         rank.textContent = dungeon.subtitle + ' · ' + dungeon.floorCount + '层';
         let description = document.createElement('p');
         description.textContent = unlocked
-            ? '游荡妖兽：' + Array.from(new Set(dungeon.floorPool.flat())).map(id => window.MONSTERS[id].name).join('、')
+            ? '盘踞敌手：' + Array.from(new Set(dungeon.floorPool.flat())).map(id => window.MONSTERS[id].name).join('、')
             : '需达到' + requiredRealm + '方可进入';
         let button = document.createElement('button');
         button.className = unlocked ? 'btn-primary' : 'btn-secondary';
@@ -251,7 +332,9 @@ function showStoryDialog(node) {
     let html = '';
     for (let i = 0; i < node.options.length; i++) {
         let opt = node.options[i];
-        html += '<button class="option-btn" data-opt="' + i + '"><span>' + opt.text + '</span></button>';
+        if (!fateOptionAvailable(opt)) continue;
+        const fateClass = opt.requiresOrigin || opt.requiresTalent || opt.requiresFlag ? ' fate-option' : '';
+        html += '<button class="option-btn' + fateClass + '" data-opt="' + i + '"><span>' + opt.text + '</span></button>';
     }
     let optContainer = $('storyOptions');
     optContainer.innerHTML = html;
@@ -272,7 +355,8 @@ window.onWorldStoryNearby = function (node) {
 
 const STORY_EFFECT_LABELS = {
     cult: '修为', maxHp: '生命上限', atk: '攻击', speed: '速度',
-    range: '攻击范围', crit: '暴击', lifesteal: '吸血', hp: '当前生命'
+    range: '攻击范围', crit: '暴击', lifesteal: '吸血', hp: '当前生命',
+    stones: '灵石'
 };
 
 function applyStoryEffects(effects) {
@@ -291,7 +375,10 @@ function applyStoryEffects(effects) {
         else if (key === 'crit') G.crit = Math.max(0, Math.min(80, G.crit + value));
         else if (key === 'lifesteal') G.lifesteal = (G.lifesteal || 0) + value;
         else if (key === 'hp') G.hp = Math.max(1, Math.min(G.maxHp, G.hp + value));
-        else continue;
+        else if (key === 'stones') {
+            if (typeof addSpiritStones === 'function') addSpiritStones(value);
+            else G.spiritStones = (G.spiritStones || 0) + value;
+        } else continue;
         const label = STORY_EFFECT_LABELS[key] || key;
         lines.push(label + (value > 0 ? '+' : '') + value);
     }
@@ -354,7 +441,9 @@ function showEnding() {
     $('endEmoji').textContent = '🏆';
     $('endTitle').textContent = '第一章 · 灵气觉醒 —— 通关';
     let o = window.ORIGINS.find(x => x.id === G.origin);
-    $('endDesc').textContent = '道号「' + (G.username || '无名') + '」，' + (o ? o.name : '散修') + '出身，如今已是青云仙门弟子。';
+    let talent = getTalentDef();
+    $('endDesc').textContent = '道号「' + (G.username || '无名') + '」，' +
+        (o ? o.name : '散修') + '出身，' + (talent ? talent.name : '凡骨') + '之资，如今已是青云仙门弟子。';
     let html = '';
     html += eStat('境界', window.REALMS[G.realm].name);
     html += eStat('修为', G.cultivation);
@@ -378,6 +467,28 @@ window.onDungeonFloorClear = function (floor) {
         addSectContribution((window.SECT && window.SECT.contributionPerFloor) || 8);
     }
     let run = Engine.getState();
+    // 与 NPC 的切磋/生死斗：一场一对一的人形战斗，胜利后回大地图
+    if (run.duel && run.duelNpc) {
+        const npc = run.duelNpc;
+        if (!G.npcRelations) G.npcRelations = {};
+        G.npcRelations[npc.id] = Math.max(-100, Math.min(100, getNpcRelation(npc) - 4));
+        G.flags.duels = (G.flags.duels || 0) + 1;
+        const reward = 20 + G.realm * 4;
+        if (typeof gainCultivation === 'function') gainCultivation(reward);
+        addSpiritStones(12 + G.realm * 2);
+        if (npc.id === 'mochen' || npc.id === 'jichang') {
+            addItem('jade_slip', 1);
+        } else {
+            addSectContribution(10);
+        }
+        Engine.finishRun(true);
+        run.duel = false;
+        run.duelNpc = null;
+        toast('⚔️ 你胜了 ' + npc.name + ' · 修为+' + reward + ' · 灵石+' + (12 + G.realm * 2), 'gold');
+        saveGame(false);
+        Engine.startWorld();
+        return;
+    }
     if (run.skirmish) {
         Engine.finishRun(true);
         Engine.startWorld();
@@ -471,6 +582,15 @@ window.onDungeonFloorClear = function (floor) {
 };
 
 window.onDungeonDeath = function () {
+    const run = Engine.getState();
+    if (run.duel && run.duelNpc) {
+        const npc = run.duelNpc;
+        if (!G.npcRelations) G.npcRelations = {};
+        G.npcRelations[npc.id] = Math.max(-100, Math.min(100, getNpcRelation(npc) - 8));
+        G.flags.duelLosses = (G.flags.duelLosses || 0) + 1;
+        run.duel = false;
+        run.duelNpc = null;
+    }
     setTimeout(() => {
         Engine.stopRun();
         hideOverlay('cardsOverlay');

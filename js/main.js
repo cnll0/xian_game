@@ -58,9 +58,11 @@ function init() {
     $('loginName').addEventListener('keydown', e => { if (e.key === 'Enter') $('loginPass').focus(); });
 
     $('startGameBtn').addEventListener('click', () => {
-        let oid = $('startGameBtn').dataset.oid;
-        if (oid) newGame(oid);
+        newGame();
     });
+    if ($('rerollFateBtn')) {
+        $('rerollFateBtn').addEventListener('click', rerollFate);
+    }
 
     $('saveBtn').addEventListener('click', () => saveGame(true));
     $('menuBtn').addEventListener('click', () => showOverlay('menuOverlay'));
@@ -136,20 +138,36 @@ function showGameShell() {
 }
 
 function newGame(originId) {
-    let o = ORIGINS.find(x => x.id === originId);
+    const fate = window._fate || (typeof rollFate === 'function' ? rollFate() : null);
+    let o = originId
+        ? ORIGINS.find(x => x.id === originId)
+        : (fate && fate.origin) || ORIGINS[Math.floor(Math.random() * ORIGINS.length)];
     if (!o) return;
+    const talentPool = window.TALENTS || [];
+    let talent = (fate && fate.talent) || talentPool.find(t => t.id === 'mortal') || { id: 'mortal', name: '凡骨', emoji: '🪨', bonus: {}, desc: '' };
+    if (!talent) talent = { id: 'mortal', name: '凡骨', emoji: '🪨', bonus: {} };
+
     G.origin = o.id;
+    G.talent = talent.id;
     G.created = true;
     G.realm = 0;
-    G.cultivation = 0;
-    G.atk = 10 + (o.bonus.atk || 0);
-    G.maxHp = 100 + (o.bonus.maxHp || 0);
-    G.speed = 3.2 + (o.bonus.speed || 0);
-    G.range = 46 + (o.bonus.range || 0);
-    G.lifesteal = 0;
-    G.crit = 5 + (o.bonus.crit || 0);
+    G.cultivation = (o.bonus.cult || 0) + (talent.bonus.cult || 0);
+    G.atk = 10 + (o.bonus.atk || 0) + (talent.bonus.atk || 0);
+    G.maxHp = 100 + (o.bonus.maxHp || 0) + (talent.bonus.maxHp || 0);
+    G.speed = 3.2 + (o.bonus.speed || 0) + (talent.bonus.speed || 0);
+    G.range = 46 + (o.bonus.range || 0) + (talent.bonus.range || 0);
+    G.lifesteal = (talent.bonus.lifesteal || 0);
+    G.crit = 5 + (o.bonus.crit || 0) + (talent.bonus.crit || 0);
     G.hp = G.maxHp;
-    G.flags = { kills: 0, runs: 0, clears: 0, maxFloor: 0, cursedPicks: 0, storyClear: 0, deaths: 0, noDeathClear: 0 };
+    G.flags = {
+        kills: 0, runs: 0, clears: 0, maxFloor: 0, cursedPicks: 0, storyClear: 0, deaths: 0, noDeathClear: 0,
+        cultGain: talent.bonus.cultGain || 0,
+        damageReduce: talent.bonus.damageReduce || 0,
+        luck: talent.bonus.luck || 0,
+        healBonus: talent.bonus.healBonus || 0,
+        shopDiscount: talent.bonus.shopDiscount || 0,
+        notoriety: talent.bonus.notoriety || 0
+    };
     G.story = { node: 's0', done: [] };
     G.world = null;
     G.learnedTechniques = [];
@@ -158,19 +176,26 @@ function newGame(originId) {
     G.npcRewardClaims = {};
     G.achievements = [];
     G.inventory = {};
-    G.spiritStones = 30;
+    G.spiritStones = 30 + (talent.bonus.stones || 0);
     G.sect = { rank: 0, contribution: 0, lastSalary: '' };
     addItem('pill_hp', 1);
-    if (o.startItem) {
-        addItem(o.startItem, 1);
-        toast('🎒 开局行囊：回春丹 ×1 · ' + (getItemDef(o.startItem)?.name || '道具') + ' ×1 · 灵石 ×30', 'gold');
-    } else {
-        toast('🎒 开局行囊：回春丹 ×1 · 灵石 ×30', 'gold');
-    }
+    if (o.startItem) addItem(o.startItem, 1);
+    if (talent.startItem) addItem(talent.startItem, 1);
+
+    const bag = [];
+    bag.push('回春丹 ×1');
+    if (o.startItem) bag.push((getItemDef(o.startItem)?.name || '道具') + ' ×1');
+    if (talent.startItem) bag.push((getItemDef(talent.startItem)?.name || '道具') + ' ×1');
+    bag.push('灵石 ×' + G.spiritStones);
+    toast('🎒 开局行囊：' + bag.join(' · '), 'gold');
+
     hideOverlay('createOverlay');
     showGameShell();
     updateHUD();
-    toast('🌟 出身选定：' + o.emoji + o.name, 'gold');
+    toast('🌟 命格：' + o.emoji + o.name + ' · ' + talent.emoji + talent.name, 'gold');
+    if (talent.id === 'demonbone') {
+        toast('🩸 煞骨外露：正道修士初见你时会多一分戒备', 'bad');
+    }
     saveGame(false);
     Engine.startWorld(true);
 }
@@ -178,6 +203,14 @@ function newGame(originId) {
 function updateHUD() {
     let nameEl = $('hudName');
     if (nameEl) nameEl.textContent = (G.username || '无名') + ' · ' + window.REALMS[G.realm].name;
+    let fateEl = $('hudFate');
+    if (fateEl) {
+        const talent = window.getTalentDef ? window.getTalentDef() : null;
+        const origin = window.getOriginDef ? window.getOriginDef() : null;
+        fateEl.textContent = talent ? (talent.emoji || '✨') + talent.name : '✨凡骨';
+        fateEl.title = (origin ? origin.emoji + origin.name + ' · ' : '') + (talent ? talent.name + '：' + talent.desc : '');
+        fateEl.className = 'hud-fate' + (talent ? ' rarity-' + (talent.rarity || 'common') : '');
+    }
     let state = Engine.getState();
     let inWorld = state.state === 'world' || (state.state === 'dialog' && state.npcPausedState === 'world');
     let inDungeon = !inWorld && Engine.isRunning();
@@ -211,25 +244,59 @@ function renderAchievementBadge() {
     if (el) el.textContent = '🏆' + G.achievements.length + '/' + window.ACHIEVEMENTS.length;
 }
 
-function renderOrigins() {
-    let html = '';
-    for (let o of window.ORIGINS) {
-        html += '<div class="origin-card" data-oid="' + o.id + '">' +
-            '<span class="o-emoji">' + o.emoji + '</span>' +
-            '<div class="o-name">' + o.name + '</div>' +
-            '<div class="o-desc">' + o.desc + '</div>' +
-            '</div>';
+/**
+ * 重新推演命格：只重掷结果，不允许指定出身/天赋。
+ * 每次点击都会替换 window._fate，并重新渲染两张命格卡。
+ */
+function rerollFate() {
+    if (typeof rollFate !== 'function') return null;
+    window._fate = rollFate();
+    renderOrigins();
+    const grid = $('originGrid');
+    if (grid) {
+        grid.classList.remove('fate-reshuffle');
+        void grid.offsetWidth;
+        grid.classList.add('fate-reshuffle');
     }
+    const o = window._fate.origin;
+    const t = window._fate.talent;
+    if (typeof toast === 'function') {
+        toast('🎲 天机重演：' + o.emoji + o.name + ' · ' + t.emoji + t.name, 'gold');
+    }
+    return window._fate;
+}
+window.rerollFate = rerollFate;
+
+function renderOrigins() {
+    const fate = window._fate || (typeof rollFate === 'function' ? rollFate() : null);
+    if (!fate) return;
+    window._fate = fate;
+    const o = fate.origin;
+    const t = fate.talent;
+    G.origin = o.id;
+    G.talent = t.id;
+    const talentDesc = t.desc || '';
+    const rarityLabels = { common: '凡品', uncommon: '良品', rare: '上品', epic: '天品' };
+    const rarityLabel = rarityLabels[t.rarity] || '凡品';
+    const html =
+        '<div class="fate-reveal" aria-live="polite">' +
+            '<div class="origin-card fate-origin selected">' +
+                '<span class="o-emoji">' + o.emoji + '</span>' +
+                '<div class="o-name">' + o.name + '</div>' +
+                '<div class="o-desc">' + o.desc + '</div>' +
+                '<span class="fate-tag">出身 · 随机</span>' +
+            '</div>' +
+            '<div class="origin-card fate-talent selected rarity-' + (t.rarity || 'common') + '">' +
+                '<span class="o-emoji">' + (t.emoji || '✨') + '</span>' +
+                '<div class="o-name">' + (t.name || '天赋') + '</div>' +
+                '<div class="o-desc">' + talentDesc + '</div>' +
+                '<span class="fate-tag">天赋 · ' + rarityLabel + '</span>' +
+            '</div>' +
+        '</div>' +
+        '<div class="fate-note">✦ 天机推演：出身与天赋皆由天命随机而定，并会改变后续剧情选项、NPC 态度与战斗手感。</div>';
     $('originGrid').innerHTML = html;
-    $('startGameBtn').disabled = true;
-    document.querySelectorAll('.origin-card').forEach(card => {
-        card.addEventListener('click', () => {
-            document.querySelectorAll('.origin-card').forEach(c => c.classList.remove('selected'));
-            card.classList.add('selected');
-            $('startGameBtn').disabled = false;
-            $('startGameBtn').dataset.oid = card.dataset.oid;
-        });
-    });
+    $('startGameBtn').disabled = false;
+    $('startGameBtn').dataset.oid = o.id;
 }
 
 function showSaveLoad() {

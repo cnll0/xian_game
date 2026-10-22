@@ -13,6 +13,7 @@
             <header class="hud">
                 <div class="hud-left">
                     <span id="hudName">无名 · 炼气一重</span>
+                    <span id="hudFate" class="hud-fate">✨凡骨</span>
                     <div class="hp-bar"><div id="hudHpFill" class="hp-fill"></div><span id="hudHpText">100/100</span></div>
                 </div>
 
@@ -109,12 +110,15 @@
         </div>
     </div>
 
-    <!-- 选出身 -->
+    <!-- 天命推演：出身与天赋随机 -->
     <div id="createOverlay" class="overlay">
         <div class="create-box">
-            <div class="create-title">🌟 选择你的出身</div>
-            <div class="origin-grid" id="originGrid"></div>
-            <button id="startGameBtn" class="btn-primary" disabled>开始修仙</button>
+            <div class="create-title">✨ 天机推演 · 命格已定</div>
+            <div class="origin-grid fate-grid" id="originGrid"></div>
+            <div class="fate-actions">
+                <button id="rerollFateBtn" class="btn-secondary">🎲 重掷命格</button>
+                <button id="startGameBtn" class="btn-primary" disabled>接受天命 · 开始修仙</button>
+            </div>
         </div>
     </div>
 
@@ -274,6 +278,7 @@
 
     <!-- 模块加载顺序 -->
     <script src="js/engine/utils/MathUtils.js"></script>
+    <script src="js/engine/utils/Collision.js"></script>
     <script src="js/engine/utils/AssetLoader.js"></script>
     <script src="js/engine/utils/ObjectPool.js"></script>
     <script src="js/engine/utils/AudioManager.js"></script>
@@ -287,6 +292,7 @@
     <script src="js/engine/systems/CombatSystem.js"></script>
     <script src="js/engine/systems/CardSystem.js"></script>
     <script src="js/engine/render/WorldRenderer.js"></script>
+    <script src="js/engine/render/AttackFx.js"></script>
     <script src="js/engine/render/Renderer.js"></script>
     <script src="js/engine/Engine.js"></script>
     <script src="js/engine/compat.js"></script>

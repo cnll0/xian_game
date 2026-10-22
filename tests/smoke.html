@@ -14,6 +14,7 @@
             <header class="hud">
                 <div class="hud-left">
                     <span id="hudName">无名 · 炼气一重</span>
+                    <span id="hudFate" class="hud-fate">✨凡骨</span>
                     <div class="hp-bar"><div id="hudHpFill" class="hp-fill"></div><span id="hudHpText">100/100</span></div>
                 </div>
 
@@ -106,12 +107,15 @@
         </div>
     </div>
 
-    <!-- 选出身 -->
+    <!-- 天命推演：出身与天赋随机 -->
     <div id="createOverlay" class="overlay">
         <div class="create-box">
-            <div class="create-title">🌟 选择你的出身</div>
-            <div class="origin-grid" id="originGrid"></div>
-            <button id="startGameBtn" class="btn-primary" disabled>开始修仙</button>
+            <div class="create-title">✨ 天机推演 · 命格已定</div>
+            <div class="origin-grid fate-grid" id="originGrid"></div>
+            <div class="fate-actions">
+                <button id="rerollFateBtn" class="btn-secondary">🎲 重掷命格</button>
+                <button id="startGameBtn" class="btn-primary" disabled>接受天命 · 开始修仙</button>
+            </div>
         </div>
     </div>
 
@@ -228,6 +232,7 @@ window.__stepRaf = (ts) => {
 </script>
     <!-- 模块加载顺序 -->
     <script src="js/engine/utils/MathUtils.js"></script>
+    <script src="js/engine/utils/Collision.js"></script>
     <script src="js/engine/utils/AssetLoader.js"></script>
     <script src="js/engine/utils/ObjectPool.js"></script>
     <script src="js/engine/utils/AudioManager.js"></script>
@@ -241,6 +246,7 @@ window.__stepRaf = (ts) => {
     <script src="js/engine/systems/CombatSystem.js"></script>
     <script src="js/engine/systems/CardSystem.js"></script>
     <script src="js/engine/render/WorldRenderer.js"></script>
+    <script src="js/engine/render/AttackFx.js"></script>
     <script src="js/engine/render/Renderer.js"></script>
     <script src="js/engine/Engine.js"></script>
     <script src="js/engine/compat.js"></script>
@@ -283,6 +289,31 @@ window.addEventListener('DOMContentLoaded', () => {
                 __record('systems', inst && { world: !!inst.worldSystem, combat: !!inst.combatSystem, card: !!inst.cardSystem, renderer: !!inst.renderer });
                 __record('assets', inst && inst.gameState.runtime.assets && Object.keys(inst.gameState.runtime.assets.images).length);
                 await guestLogin();
+                if (location.search.indexOf('visual=fate') >= 0) {
+                    const rerollBtn = document.getElementById('rerollFateBtn');
+                    let rerollOk = !!rerollBtn;
+                    if (rerollBtn) {
+                        for (let i = 0; i < 5; i++) {
+                            rerollBtn.click();
+                            const cards = document.querySelectorAll('#originGrid .origin-card').length;
+                            const fate = window._fate;
+                            const valid = fate && window.ORIGINS.some(o => o.id === fate.origin.id) &&
+                                window.TALENTS.some(t => t.id === fate.talent.id);
+                            if (cards !== 2 || !valid) rerollOk = false;
+                        }
+                    }
+                    __record('fate', {
+                        origin: window._fate && window._fate.origin && window._fate.origin.id,
+                        talent: window._fate && window._fate.talent && window._fate.talent.id,
+                        overlay: __activeOverlay(),
+                        cards: document.querySelectorAll('#originGrid .origin-card').length,
+                        reroll: rerollOk
+                    });
+                    __record('visual', 'fate-ready');
+                    __record('errors', window.__auditErrors);
+                    document.getElementById('auditResult').textContent = window.__audit.join('\n');
+                    return;
+                }
                 newGame('poor');
                 __step(10);
                 __record('afterNewGame', { state: inst.gameState.runtime.state, running: inst.gameState.runtime.running, overlay: __activeOverlay(), zone: inst.gameState.runtime.world.zone });
@@ -360,19 +391,249 @@ window.addEventListener('DOMContentLoaded', () => {
                     worldState.player.y = window.STORY_LOCATIONS.s0.y;
                     inst.worldSystem._checkInteractions();
                 } catch (e) { __record('story.error', e.message); }
+                if (location.search.indexOf('visual=npcdialog') >= 0) {
+                    G.origin = 'scholar';
+                    G.talent = 'lucky';
+                    showNpcDialog(window.NPCS.find(n => n.id === 'ningxiao'));
+                    __step(2);
+                    __record('npcportrait', { overlay: __activeOverlay(), canvas: !!document.getElementById('npcPortrait') });
+                    __record('visual', 'npcdialog-ready');
+                    __record('errors', window.__auditErrors);
+                    document.getElementById('auditResult').textContent = window.__audit.join('\n');
+                    return;
+                }
+                if (location.search.indexOf('visual=storyfate') >= 0) {
+                    G.origin = 'orphan';
+                    G.talent = 'swordbone';
+                    showStoryDialog(getStoryNode('s0'));
+                    __record('storyfate', {
+                        options: document.querySelectorAll('#storyOptions .option-btn').length,
+                        fateOptions: document.querySelectorAll('#storyOptions .fate-option').length,
+                        overlay: __activeOverlay()
+                    });
+                    __record('visual', 'storyfate-ready');
+                    __record('errors', window.__auditErrors);
+                    document.getElementById('auditResult').textContent = window.__audit.join('\n');
+                    return;
+                }
                 if (location.search === '?visual=1') {
                     __record('visual', 'world-ready');
                     __record('errors', window.__auditErrors);
                     document.getElementById('auditResult').textContent = window.__audit.join('\n');
                     return;
                 }
-                Engine.startRun(1, false, 'qingyun', false);
+                if (location.search.indexOf('visual=duelwin') >= 0) {
+                    const duelNpc2 = (window.NPCS || []).find(n => n.id === 'guqinghan');
+                    Engine.startNpcDuel(duelNpc2.id);
+                    await new Promise(r => setTimeout(r, 900));
+                    __step(10);
+                    const duelRun2 = inst.gameState.runtime;
+                    const before = { duels: G.flags.duels || 0, kills: G.flags.kills || 0 };
+                    if (duelRun2.monsters && duelRun2.monsters[0]) {
+                        inst.combatSystem.killMonster(duelRun2.monsters[0], 0);
+                    }
+                    __step(120);
+                    await new Promise(r => setTimeout(r, 300));
+                    __step(10);
+                    __record('duelwin', {
+                        state: inst.gameState.runtime.state,
+                        duelsBefore: before.duels,
+                        duelsAfter: G.flags.duels || 0,
+                        humanKills: G.flags.humanKills || 0,
+                        stones: G.spiritStones,
+                        overlay: __activeOverlay()
+                    });
+                    __record('visual', 'duelwin-ready');
+                    __record('errors', window.__auditErrors);
+                    document.getElementById('auditResult').textContent = window.__audit.join('\n');
+                    return;
+                }
+                if (location.search.indexOf('visual=duel') >= 0) {
+                    const duelNpc = (window.NPCS || []).find(n => n.id === 'guqinghan');
+                    Engine.startNpcDuel(duelNpc.id);
+                    await new Promise(r => setTimeout(r, 900));
+                    __step(20);
+                    const duelRun = inst.gameState.runtime;
+                    const enemy = duelRun.monsters && duelRun.monsters[0];
+                    if (enemy && duelRun.player) {
+                        duelRun.player.x = enemy.x - 46;
+                        duelRun.player.y = enemy.y + 10;
+                        __step(8);
+                    }
+                    __record('duel', {
+                        state: duelRun.state,
+                        human: enemy && enemy.human,
+                        name: enemy && enemy.name,
+                        art: enemy && enemy.art,
+                        monsters: duelRun.monsters && duelRun.monsters.length,
+                        hp: enemy && enemy.hp,
+                        playerHp: duelRun.player && duelRun.player.hp
+                    });
+                    __record('visual', 'duel-ready');
+                    __record('errors', window.__auditErrors);
+                    document.getElementById('auditResult').textContent = window.__audit.join('\n');
+                    return;
+                }
+                const auditDungeon = new URLSearchParams(location.search).get('dungeon') || 'qingyun';
+                Engine.startRun(1, false, auditDungeon, false);
                 await new Promise(r => setTimeout(r, 700));
                 __step(10);
                 const run = inst.gameState.runtime;
                 __record('run', { state: run.state, floor: run.floor, monsters: run.monsters.length, player: !!run.player, overlay: __activeOverlay() });
                 __record('traps', run.traps.map(t => t.type));
                 __record('playerStart', { atkCd: run.player && run.player.atkCd, slow: run.player && run.player.attackSlowTime });
+                if (location.search.indexOf('visual=collision') >= 0) {
+                    // 玩家正面顶着 solid 地标走，必须停在表面而不是穿过去。
+                    // 古树/竹林只有细树干挡路，优先用断墙/方尖碑这类实心大件做正面测试。
+                    const solids = (run.landmarks || []).filter(lm => lm.solid);
+                    const solid = solids.find(lm => lm.type !== 'ancient-tree' && lm.type !== 'bamboo-grove') ||
+                        solids[0];
+                    run.monsters.length = 0;
+                    run.traps.length = 0;
+                    const obstacles = window.Collision.build(run.landmarks);
+                    if (solid) {
+                        run.player.x = solid.x;
+                        run.player.y = solid.y + 170;
+                        inst.inputManager.keys.KeyW = true;
+                        __step(150);
+                        inst.inputManager.keys.KeyW = false;
+                    }
+                    __record('collision', {
+                        hasSolid: !!solid,
+                        solidType: solid && solid.type,
+                        solidY: solid && solid.y,
+                        playerY: Math.round(run.player.y),
+                        inside: solid ? window.Collision.hits(run.player.x, run.player.y, run.player.r, obstacles) : null,
+                        obstacles: obstacles.length
+                    });
+                    __record('visual', 'collision-ready');
+                    __record('errors', window.__auditErrors);
+                    document.getElementById('auditResult').textContent = window.__audit.join('\n');
+                    return;
+                }
+                if (location.search.indexOf('visual=fx') >= 0) {
+                    // 把玩家 + 全部怪物的攻击特效同时摆出来，方便截图检查“每个实体都不一样”
+                    const ids = ['player'].concat(Object.keys(window.MONSTERS || {}));
+                    if (run.dungeonWorld) {
+                        run.player.x = run.dungeonWorld.width / 2;
+                        run.player.y = run.dungeonWorld.height / 2;
+                    }
+                    run.monsters.length = 0;
+                    run.effects.length = 0;
+                    run.texts.length = 0;
+                    run.traps.length = 0;
+                    if (run.chests) run.chests.length = 0;
+                    ids.forEach((id, i) => {
+                        const col = i % 6;
+                        const row = Math.floor(i / 6);
+                        const x = run.player.x + (col - 2.5) * 130 - 100;
+                        const y = run.player.y + (row - 2) * 104;
+                        const base = window.MONSTERS[id];
+                        const realReach = id === 'player'
+                            ? 46
+                            : window.AttackFx.reachForMonster({ id, r: base ? base.r : 16 }, 16);
+                        // 网格里统一画成同样大小（46），标签里写真实攻击距离，方便对比形状
+                        const effect = window.AttackFx.makeEffect({
+                            fx: id, x, y, angle: -Math.PI / 2, reach: 46, monster: id !== 'player'
+                        });
+                        effect.t = effect.life * 0.42;
+                        run.effects.push(effect);
+                        run.texts.push({
+                            x, y: y + 52, size: 9,
+                            text: window.AttackFx.styleFor(id).label + ' ' + Math.round(realReach),
+                            color: '#ffe9b8', t: 0, life: 99, vy: 0
+                        });
+                    });
+                    __step(1);
+                    __record('visual', 'fx-ready:' + ids.length);
+                    __record('fxStyles', ids.map(id => {
+                        const s = window.AttackFx.styleFor(id);
+                        const base = window.MONSTERS[id];
+                        const realReach = id === 'player'
+                            ? 46
+                            : window.AttackFx.reachForMonster({ id, r: base ? base.r : 16 }, 16);
+                        return id + '=' + s.label + '/' + s.shape + '/' + Math.round(realReach);
+                    }));
+                    __record('consoleErrors', window.__consoleErrors);
+                    __record('errors', window.__auditErrors);
+                    document.getElementById('auditResult').textContent = window.__audit.join('\n');
+                    return;
+                }
+                if (location.search.indexOf('visual=range') >= 0) {
+                    // 四种不同形状的怪同时出手：贴脸爪、长矛、冲击环、巨型龙噬
+                    const ids = ['wolf', 'skeleton', 'brute', 'boss'];
+                    const player = run.player;
+                    if (run.dungeonWorld) {
+                        player.x = run.dungeonWorld.width / 2;
+                        player.y = run.dungeonWorld.height / 2;
+                    }
+                    run.monsters.length = 0;
+                    run.effects.length = 0;
+                    run.texts.length = 0;
+                    run.traps.length = 0;
+                    if (run.chests) run.chests.length = 0;
+                    const ranges = {};
+                    const labels = [];
+                    ids.forEach((id, i) => {
+                        const base = window.MONSTERS[id];
+                        const m = {
+                            id, name: base.name, r: base.r, atk: 10, speed: 1, facing: 0,
+                            hp: 100, maxHp: 100, atkCd: 0, stunCd: 0,
+                            human: !!base.human, art: base.art || null
+                        };
+                        const reach = window.AttackFx.reachForMonster(m, player.r);
+                        const ang = -Math.PI / 2 + i * Math.PI / 2;
+                        m.x = player.x + Math.cos(ang) * reach * 0.72;
+                        m.y = player.y + Math.sin(ang) * reach * 0.72;
+                        run.monsters.push(m);
+                        inst.combatSystem._monsterAttack(m, player);
+                        m.stunCd = 999; // 冻结：只留这一次出手用于截图
+                        ranges[id] = Math.round(reach);
+                        labels.push({
+                            x: m.x, y: m.y - 26, size: 10,
+                            text: base.name + ' ' + Math.round(reach),
+                            color: '#ffe9b8', t: 0, life: 99, vy: 0
+                        });
+                    });
+                    player.hp = player.maxHp;
+                    run.texts.length = 0;
+                    labels.forEach(t => run.texts.push(t));
+                    for (let i = run.effects.length - 1; i >= 0; i--) {
+                        if (run.effects[i].type === 'hurt') run.effects.splice(i, 1);
+                    }
+                    run.effects.forEach(e => {
+                        if (e.type === 'slash' && e.monster) e.t = e.life * 0.42;
+                    });
+                    __step(1);
+                    __record('range', ranges);
+                    __record('visual', 'range-ready');
+                    __record('errors', window.__auditErrors);
+                    document.getElementById('auditResult').textContent = window.__audit.join('\n');
+                    return;
+                }
+                if (location.search.indexOf('visual=idlehit') >= 0) {
+                    // 玩家完全不动时，近战怪物必须能自己贴上来并造成伤害
+                    const idleMonster = run.monsters.find(m => !m.ranged) || run.monsters[0];
+                    run.player.x = idleMonster.x + 80;
+                    run.player.y = idleMonster.y;
+                    idleMonster.state = 'wander';
+                    idleMonster.homeX = idleMonster.x;
+                    idleMonster.homeY = idleMonster.y;
+                    const idleHp0 = run.player.hp;
+                    __step(200);
+                    __record('idlehit', {
+                        hp0: idleHp0,
+                        hp1: run.player.hp,
+                        drop: idleHp0 - run.player.hp,
+                        state: idleMonster.state,
+                        dist: Math.round(Math.hypot(idleMonster.x - run.player.x, idleMonster.y - run.player.y)),
+                        atk: idleMonster.atk
+                    });
+                    __record('visual', 'idlehit-ready');
+                    __record('errors', window.__auditErrors);
+                    document.getElementById('auditResult').textContent = window.__audit.join('\n');
+                    return;
+                }
                 if (location.search.indexOf('test=ranged') >= 0) {
                     const m = run.monsters[0];
                     m.ranged = true;
@@ -403,8 +664,12 @@ window.addEventListener('DOMContentLoaded', () => {
                     const m = run.monsters[0];
                     run.player.x = m.x - 20;
                     run.player.y = m.y;
-                    inst.inputManager.mouse.x = m.x;
-                    inst.inputManager.mouse.y = m.y;
+                    // InputManager 的 mouse 是 960×540 画布坐标；秘境世界要减去相机偏移
+                    const fxWorld = run.dungeonWorldMode && run.dungeonWorld;
+                    const camX = fxWorld ? MathUtils.clamp(run.player.x - 480, 0, fxWorld.width - 960) : 0;
+                    const camY = fxWorld ? MathUtils.clamp(run.player.y - 270, 0, fxWorld.height - 540) : 0;
+                    inst.inputManager.mouse.x = m.x - camX;
+                    inst.inputManager.mouse.y = m.y - camY;
                     const hp0 = m.hp;
                     __record('attack.pre', { atkPressed: inst.inputManager.attackPressed, gameInput: window.gameInput && { a: window.gameInput.attackPressed, hasMouse: !!window.gameInput.mouse }, atkCd: run.player.atkCd, slow: run.player.attackSlowTime, dist: Math.hypot(run.player.x - m.x, run.player.y - m.y) });
                     run.player.attackSlowTime = 0;
@@ -412,9 +677,18 @@ window.addEventListener('DOMContentLoaded', () => {
                     document.getElementById('gameCanvas').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
                     __step(1);
                     __record('attack.after1', { attackPressed: window.gameInput && window.gameInput.attackPressed, swinging: run.player.swinging, atkCd: run.player.atkCd, bullets: run.bullets.length, hp: m.hp });
+                    __record('attack.fx', {
+                        facing: Math.round(run.player.facing * 1000) / 1000,
+                        mouseAngle: Math.round(Math.atan2(
+                            inst.inputManager.mouse.y + camY - run.player.y,
+                            inst.inputManager.mouse.x + camX - run.player.x) * 1000) / 1000,
+                        slashes: run.effects.filter(e => e.type === 'slash').map(e => ({
+                            fx: e.fx, arcHalf: e.arcHalf, reach: Math.round(e.r), monster: !!e.monster
+                        }))
+                    });
                     if (location.search.indexOf('visual=combat') >= 0) {
                         __record('visual', 'combat-ready');
-                        __record('effects', run.effects.map(e => e.type));
+                        __record('effects', run.effects.map(e => e.type + (e.fx ? ':' + e.fx : '')));
                         __record('errors', window.__auditErrors);
                         document.getElementById('auditResult').textContent = window.__audit.join('\n');
                         return;
@@ -424,7 +698,7 @@ window.addEventListener('DOMContentLoaded', () => {
                     __record('attack.drop', hp0 - m.hp);
                     __record('combat.fx', {
                         texts: run.texts.map(t => t.text),
-                        effects: run.effects.map(e => e.type)
+                        effects: run.effects.map(e => e.type + (e.fx ? ':' + e.fx : ''))
                     });
                 }
                 __record('hud.hpText', document.getElementById('hudHpText') ? document.getElementById('hudHpText').textContent : 'MISSING');

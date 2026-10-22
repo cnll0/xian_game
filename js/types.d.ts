@@ -325,6 +325,17 @@ interface Bullet {
   // 斩击特有
   angle?: number;
   range?: number;
+  arcHalf?: number;
+  innerR?: number;
+  fx?: string;
+  proj?: string;
+  pal?: string[];
+  shape?: 'fan' | 'thrust' | 'ring' | 'cross' | 'lobes' | 'claw';
+  width?: number;
+  lanes?: number;
+  laneGap?: number;
+  laneSpread?: number;
+  laneHalf?: number;
   isCrit?: boolean;
   pierce?: boolean;
   chain?: number;
@@ -344,7 +355,7 @@ interface Bullet {
 // 特效
 // ============================================
 
-type EffectType = 'boom' | 'element' | 'evolution';
+type EffectType = 'boom' | 'element' | 'evolution' | 'slash';
 
 interface Effect {
   type: EffectType;
@@ -354,6 +365,26 @@ interface Effect {
   t: number;
   life: number;
   element?: 'fire' | 'ice' | 'poison' | 'heal' | 'shield' | 'chain' | 'crystal' | 'seal' | 'roots' | 'void';
+  // 攻击特效（AttackFx）字段：几何 = 判定
+  fx?: string;
+  a?: number;
+  r?: number;
+  arcHalf?: number;
+  innerR?: number;
+  shape?: 'fan' | 'thrust' | 'ring' | 'cross' | 'lobes' | 'claw';
+  width?: number;
+  lanes?: number;
+  laneGap?: number;
+  laneSpread?: number;
+  laneHalf?: number;
+  pal?: string[];
+  kind?: string;
+  blades?: number;
+  sweep?: number;
+  spark?: string;
+  seeds?: number;
+  seed?: number;
+  monster?: boolean;
 }
 
 // ============================================

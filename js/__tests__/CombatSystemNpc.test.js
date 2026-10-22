@@ -103,4 +103,28 @@ describe('CombatSystem 秘境 NPC', () => {
         gameState.runtime.floorNpc = null;
         expect(combat.tryInteractDungeonWorld()).toBe(false);
     });
+
+    test('玩家站着不动时，近战怪物会贴上来并造成伤害', () => {
+        const { combat, gameState } = createCombat();
+        gameState.runtime.dungeonWorld = { width: 2400, height: 1600, exit: { x: 1200, y: 80 } };
+        gameState.runtime.player = {
+            x: 1200, y: 800, r: 16, hp: 100, maxHp: 100,
+            shield: 0, invuln: 0, facing: 0,
+            mods: { dodge: 0, shieldCd: 0, thorns: 0, curseLastStand: false }
+        };
+        // 距离 60px：旧逻辑会在 +20 的 chase 阈值处切 attack，但攻击判定只有 +10，
+        // 于是怪物站在攻击距离外不动，玩家不动就永远不掉血。
+        const monster = {
+            x: 1260, y: 800, r: 16, hp: 40, maxHp: 40, atk: 8, speed: 2,
+            state: 'wander', canSeePlayer: true, vision: 200,
+            homeX: 1260, homeY: 800, atkCd: 0, stunCd: 0, shootTimer: 0,
+            ranged: false, keepDistance: false, wanderTimer: 0
+        };
+        gameState.runtime.monsters = [monster];
+
+        for (let i = 0; i < 180; i++) combat._updateMonstersDungeonWorld(1 / 60);
+
+        expect(monster.state).toBe('attack');
+        expect(gameState.runtime.player.hp).toBeLessThan(100);
+    });
 });

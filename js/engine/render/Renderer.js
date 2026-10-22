@@ -479,28 +479,8 @@ class EntityRenderer {
         const frame = Math.floor(p.walkT / anim.frameTime) % anim.cols;
         const fw = anim.fw, fh = anim.fh;
 
-        if (p.swinging > 0) {
-            // 顺着朝向的剑光拖尾；真正的刀光由 EffectRenderer 的 slash 特效绘制
-            ctx.save();
-            ctx.rotate(p.facing || 0);
-            const trail = -0.85 + swingProgress * 1.7;
-            ctx.globalAlpha = 0.25 + (1 - Math.abs(swingProgress - 0.5) * 2) * 0.45;
-            ctx.strokeStyle = p.mods.elemFire ? '#ff9b63' : p.mods.elemIce ? '#a8efff' : '#fff3c4';
-            ctx.lineWidth = 3;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            ctx.arc(0, 0, 48, trail - 0.55, trail + 0.55);
-            ctx.stroke();
-            // 剑身/剑尖高光，避免只有一圈弧光
-            ctx.globalAlpha = 0.9;
-            ctx.strokeStyle = '#fff8d0';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(12, 0);
-            ctx.lineTo(46, 0);
-            ctx.stroke();
-            ctx.restore();
-        }
+        // 刀光/剑气已经独立到 AttackFx（每个实体一套），不再画进角色贴图里。
+        // 这里只保留前冲位移，避免“所有角色看起来都用同一把刀”。
 
         if (img.width > fw) {
             ctx.drawImage(img, frame * fw, 0, fw, fh, -fw / 2, -fh / 2, fw, fh);
@@ -528,6 +508,32 @@ class EntityRenderer {
         const images = gameStateOrImages && gameStateOrImages.runtime
             ? gameStateOrImages.runtime.assets.images
             : (gameStateOrImages || {});
+        // 人形敌手：用角色立绘帧，而不是妖兽贴图
+        if (m.human) {
+            ctx.save();
+            ctx.translate(m.x, m.y);
+            if (m.flash > 0) {
+                ctx.globalAlpha = 0.55;
+                m.flash -= 1 / 60;
+            }
+            const h = Math.min(70, m.draw || 68);
+            window.WorldRenderer._drawCharacterArt(ctx, images, m.art || m.npcId || 'cultist', 0, 0, h);
+            // 敌对标记与名字，让玩家一眼看出这是“人”不是怪
+            ctx.fillStyle = 'rgba(20,12,14,0.66)';
+            ctx.fillRect(-m.r - 18, -h * 0.82 - 18, m.r * 2 + 36, 16);
+            ctx.fillStyle = '#ffb3b8';
+            ctx.font = 'bold 11px "Microsoft YaHei", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('⚔ ' + (m.name || '敌手'), 0, -h * 0.82 - 6);
+            if (m.hp < m.maxHp) {
+                ctx.fillStyle = '#333';
+                ctx.fillRect(-m.r, -h * 0.82 - 2, m.r * 2, 4);
+                ctx.fillStyle = '#e74c3c';
+                ctx.fillRect(-m.r, -h * 0.82 - 2, m.r * 2 * (m.hp / m.maxHp), 4);
+            }
+            ctx.restore();
+            return;
+        }
         const img = images[m.img];
         if (!img) return;
 
@@ -562,6 +568,11 @@ class EntityRenderer {
     }
 
     static _drawBullet(ctx, b) {
+        // 远程怪的弹体也按实体区分（骨箭/冰棱/妖气弹…）
+        if (window.AttackFx && b.fx && b.hostile) {
+            window.AttackFx.drawProjectile(ctx, b);
+            return;
+        }
         ctx.save();
         ctx.translate(b.x, b.y);
         ctx.fillStyle = b.color;
@@ -588,42 +599,26 @@ class EffectRenderer {
         const time = gameState.runtime.time || 0;
 
         if (e.type === 'slash') {
-            const images = gameState.runtime.assets.images;
-            const dir = ((Math.round((e.a || 0) / (Math.PI / 4)) % 8) + 8) % 8;
-            const texture = images[(e.monster ? 'claw_' : 'slash_') + dir];
-            if (texture) {
-                // 8 个方向各有一张生成好的刀光/爪击贴图，不再用一条直线
-                ctx.save();
-                ctx.translate(e.x, e.y);
-                ctx.globalAlpha = 1 - prog;
-                ctx.globalCompositeOperation = 'lighter';
-                const size = (e.r || 46) * 2.6;
-                ctx.drawImage(texture, -size / 2, -size / 2, size, size);
-                ctx.restore();
-                ctx.globalAlpha = 1;
+            // 每个实体（玩家/每种怪物）一套独立攻击特效，几何与判定同源
+            if (window.AttackFx) {
+                window.AttackFx.draw(ctx, e);
                 return;
             }
-
+            // 极端情况下（脚本未加载）回退到同一扇形的纯线框，不要退回共用贴图
             ctx.save();
             ctx.translate(e.x, e.y);
             ctx.rotate(e.a || 0);
+            const arcHalf = Number.isFinite(e.arcHalf) ? e.arcHalf : 1.1;
             ctx.lineCap = 'round';
             ctx.strokeStyle = e.color || '#7df9ff';
-            // 贴图缺失时的回退：三层弧光
             for (let i = 0; i < 3; i++) {
-                const radius = (e.r || 46) * (0.7 + prog * 0.3) - i * 7;
+                const radius = (e.r || 46) * (0.8 + prog * 0.2) - i * 7;
                 ctx.beginPath();
-                ctx.arc(0, 0, Math.max(8, radius), -1.18 + i * 0.09, 1.18 - i * 0.09);
+                ctx.arc(0, 0, Math.max(8, radius), -arcHalf + i * 0.06, arcHalf - i * 0.06);
                 ctx.globalAlpha = (1 - prog) * (0.9 - i * 0.24);
                 ctx.lineWidth = (9 - i * 2.5) * (1 - prog) + 1.5;
                 ctx.stroke();
             }
-            ctx.beginPath();
-            ctx.arc(0, 0, Math.max(8, (e.r || 46) * (0.7 + prog * 0.3)), -0.35, 0.35);
-            ctx.globalAlpha = (1 - prog) * 0.9;
-            ctx.strokeStyle = '#fff7d6';
-            ctx.lineWidth = 2;
-            ctx.stroke();
             ctx.restore();
             ctx.globalAlpha = 1;
             return;
@@ -727,6 +722,9 @@ class EffectRenderer {
         }
 
         if (e.type === 'hurt') {
+            // 秘境世界在相机变换里画全屏 fillRect 会被裁成左上角红条，
+            // 改成由 DungeonWorldRenderer 在屏幕空间绘制。
+            if (gameState.runtime.dungeonWorldMode) return;
             ctx.fillStyle = 'rgba(255,0,0,' + (0.3 * (1 - prog)) + ')';
             ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
             return;
@@ -800,7 +798,7 @@ class EffectRenderer {
     static _drawText(ctx, t) {
         ctx.save();
         ctx.globalAlpha = 1 - t.t / (t.life || 1);
-        ctx.font = 'bold 19px "Microsoft YaHei", sans-serif';
+        ctx.font = 'bold ' + (t.size || 19) + 'px "Microsoft YaHei", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.lineJoin = 'round';
@@ -1233,7 +1231,7 @@ class DungeonWorldRenderer {
                 const inVision = this._inVision(lm.x, lm.y, p.x, p.y, visionRange);
                 const explored = combat.explored && combat.explored.has(Math.floor(lm.x / 16) + ',' + Math.floor(lm.y / 16));
                 if (inVision || explored) {
-                    this._drawLandmark(ctx, lm, time, inVision ? 1 : 0.4);
+                    this._drawLandmark(ctx, lm, time, inVision ? 1 : 0.4, images, combat);
                 }
             }
         }
@@ -1285,10 +1283,30 @@ class DungeonWorldRenderer {
             }
         }
 
+        // 远程怪弹幕（以前秘境世界漏画，玩家会“无故掉血”）
+        if (combat.bullets) {
+            for (const b of combat.bullets) {
+                if (!b.hostile) continue;
+                if (!this._inVision(b.x, b.y, p.x, p.y, visionRange + 40)) continue;
+                window.EntityRenderer._drawBullet(ctx, b);
+            }
+        }
+
         // 伤害/治疗跳字、斩击、爆炸、元素特效（秘境世界坐标）
         window.EffectRenderer.render(ctx, gameState);
 
+        // 鼠标准星：攻击方向/落点跟着鼠标走，准星让玩家一眼看出“打哪”
+        this._drawAimReticle(ctx, gameState, camX, camY);
+
         ctx.restore();
+
+        // 受伤红闪：屏幕空间绘制（在相机变换里画会被裁成左上角一条红边）
+        const hurt = combat.effects.find(e => e.type === 'hurt');
+        if (hurt) {
+            const hp = Math.max(0, Math.min(1, hurt.t / (hurt.life || 0.2)));
+            ctx.fillStyle = 'rgba(255,0,0,' + (0.3 * (1 - hp)) + ')';
+            ctx.fillRect(0, 0, W, H);
+        }
 
         // 绘制迷雾遮罩（在相机变换外绘制，覆盖整个屏幕）
         this._drawFogOfWar(ctx, gameState, camX, camY, W, H);
@@ -1304,6 +1322,32 @@ class DungeonWorldRenderer {
         const dx = x - px;
         const dy = y - py;
         return dx * dx + dy * dy <= range * range;
+    }
+
+    /** 鼠标准星：攻击特效/判定都朝这里，别让人猜鼠标到底指哪 */
+    static _drawAimReticle(ctx, gameState, camX, camY) {
+        const combat = gameState.runtime;
+        const p = combat.player;
+        const mouse = window.gameInput && window.gameInput.mouse;
+        if (!p || !mouse) return;
+        const wx = camX + mouse.x;
+        const wy = camY + mouse.y;
+        const style = window.AttackFx ? window.AttackFx.playerStyle(p.mods) : null;
+        const color = style ? style.c2 : '#7df9ff';
+        ctx.save();
+        ctx.globalAlpha = 0.45;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(wx, wy, 9, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(wx - 16, wy); ctx.lineTo(wx - 7, wy);
+        ctx.moveTo(wx + 7, wy); ctx.lineTo(wx + 16, wy);
+        ctx.moveTo(wx, wy - 16); ctx.lineTo(wx, wy - 7);
+        ctx.moveTo(wx, wy + 7); ctx.lineTo(wx, wy + 16);
+        ctx.stroke();
+        ctx.restore();
     }
 
     static _drawDecor(ctx, d, time) {
@@ -1332,7 +1376,27 @@ class DungeonWorldRenderer {
         ctx.restore();
     }
 
-    static _drawLandmark(ctx, lm, time, alpha) {
+    static _drawLandmark(ctx, lm, time, alpha, images, combat) {
+        // 每张秘境地图一张专属障碍素材（assets/obstacles/obstacle_<dungeonId>.png）；
+        // 图没加载到或不是 solid 地标时，退回原来的程序化形状。
+        const artKey = combat && combat.dungeonId ? 'obstacle_' + combat.dungeonId : null;
+        const art = artKey && images ? images[artKey] : null;
+        if (art && lm.solid === true) {
+            const baseY = lm.y + (lm.h || 40) * 0.5;
+            const artH = Math.max(84, Math.max((lm.h || 40) * 1.6, (lm.w || 80) * 0.85));
+            const artW = artH * (art.width / art.height);
+            ctx.save();
+            ctx.globalAlpha = alpha;
+            ctx.imageSmoothingEnabled = false;
+            ctx.fillStyle = 'rgba(0,0,0,0.28)';
+            ctx.beginPath();
+            ctx.ellipse(lm.x, baseY + 2, artW * 0.33, Math.max(6, artH * 0.075), 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.drawImage(art, lm.x - artW / 2, baseY - artH, artW, artH);
+            ctx.restore();
+            return;
+        }
+
         ctx.save();
         ctx.globalAlpha = alpha;
         ctx.translate(lm.x, lm.y);
@@ -1380,16 +1444,10 @@ class DungeonWorldRenderer {
         ctx.fill();
 
         const npcId = floorNpc.npc.portrait || floorNpc.npc.id;
-        const img = images.npcSprites;
-        if (img) {
-            const portraits = {
-                ningxiao: { x: 0, y: 0 }, linyue: { x: 96, y: 0 }, shenli: { x: 192, y: 0 },
-                guqinghan: { x: 288, y: 0 }, mochen: { x: 384, y: 0 },
-                jichang: { x: 480, y: 0 }, hanxing: { x: 576, y: 0 }
-            };
-            const pos = portraits[npcId] || portraits.ningxiao;
-            ctx.drawImage(img, pos.x, pos.y, 96, 96, -36, -72, 72, 72);
-        }
+        const artKey = (window.CHARACTER_ART && window.CHARACTER_ART[npcId] !== undefined)
+            ? npcId
+            : ((window.NPCS || []).find(n => n.id === npcId) || {}).portrait || 'ningxiao';
+        window.WorldRenderer._drawCharacterArt(ctx, images, artKey, 0, 0, 68);
 
         // 显示交互提示（如果是最近的可交互NPC）
         if (combat && combat.nearbyDungeonNpc === floorNpc && !floorNpc.used) {

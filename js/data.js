@@ -5,6 +5,7 @@ const G = {
     guest: false,
     created: false,
     origin: null,
+    talent: null,
     realm: 0,
     cultivation: 0,
     atk: 10,
@@ -70,11 +71,94 @@ const ORIGINS = [
         id: 'hunter', emoji: '🏹', name: '山村猎户', avatarSeed: 'liehu',
         desc: '身手矫健。速度+0.6，生命+20。',
         bonus: { atk: 0, maxHp: 20, speed: 0.6 }
+    },
+    {
+        id: 'orphan', emoji: '🍂', name: '孤苦孤儿', avatarSeed: 'guer',
+        desc: '无依无靠，却比常人更懂得活下去。生命+5，速度+0.3，暴击+3。',
+        bonus: { atk: 0, maxHp: 5, speed: 0.3, crit: 3 }
+    },
+    {
+        id: 'scholar', emoji: '📜', name: '书香门第', avatarSeed: 'shuxiang',
+        desc: '自幼读遍典籍，识文断字。初始修为+20，攻击范围+4。',
+        bonus: { atk: 0, maxHp: 0, speed: 0, range: 4, cult: 20 }
     }
 ];
 
+/**
+ * 天赋由天机随机推演，不可自选。
+ * bonus 里除基础属性外，cultGain / damageReduce / luck / healBonus /
+ * shopDiscount / notoriety / stones 会在运行时真正生效。
+ */
+const TALENTS = [
+    {
+        id: 'swordbone', emoji: '🗡️', name: '剑骨天成', rarity: 'rare', weight: 14,
+        desc: '剑道悟性极高。攻击+2，暴击+8%。',
+        bonus: { atk: 2, crit: 8 }, storyTag: '剑骨'
+    },
+    {
+        id: 'spiritroot', emoji: '🌿', name: '先天灵根', rarity: 'epic', weight: 5,
+        desc: '经脉天生通透。修为获取+20%，初始修为+30。',
+        bonus: { cultGain: 0.2, cult: 30 }, storyTag: '灵根'
+    },
+    {
+        id: 'ironbody', emoji: '🛡️', name: '铜皮铁骨', rarity: 'common', weight: 26,
+        desc: '筋骨如铁。生命上限+25，受到伤害-5%。',
+        bonus: { maxHp: 25, damageReduce: 0.05 }, storyTag: '铁骨'
+    },
+    {
+        id: 'windstep', emoji: '💨', name: '踏风之资', rarity: 'uncommon', weight: 20,
+        desc: '身轻如燕。移动速度+0.7。',
+        bonus: { speed: 0.7 }, storyTag: '风步'
+    },
+    {
+        id: 'lucky', emoji: '🍀', name: '福缘深厚', rarity: 'uncommon', weight: 18,
+        desc: '机缘偏爱。灵石收益+30%，稀有掉落概率提高。',
+        bonus: { luck: 0.3 }, storyTag: '福缘'
+    },
+    {
+        id: 'alchemy', emoji: '⚗️', name: '药骨天成', rarity: 'uncommon', weight: 16,
+        desc: '丹药入口即化。丹药回复+30%，开局多一枚回春丹。',
+        bonus: { healBonus: 0.3 }, startItem: 'pill_hp', storyTag: '药骨'
+    },
+    {
+        id: 'demonbone', emoji: '🩸', name: '煞骨', rarity: 'rare', weight: 10,
+        desc: '天生煞气缠身。攻击+5、吸血+2，但正道修士初始好感-10。',
+        bonus: { atk: 5, lifesteal: 2, notoriety: 10 }, storyTag: '煞骨'
+    },
+    {
+        id: 'mercantile', emoji: '💰', name: '商才', rarity: 'common', weight: 22,
+        desc: '天生的生意人。开局灵石+40，商店买入九折。',
+        bonus: { stones: 40, shopDiscount: 0.1 }, storyTag: '商才'
+    },
+    {
+        id: 'mortal', emoji: '🪨', name: '凡骨', rarity: 'common', weight: 0,
+        desc: '旧存档补全的凡骨之资，无额外天赋。',
+        bonus: {}, storyTag: '凡骨'
+    }
+];
+
+const TALENT_RARITY_WEIGHTS = { common: 1, uncommon: 1.35, rare: 0.8, epic: 0.35 };
+
 function originAvatar(o) {
     return 'https://api.dicebear.com/9.x/adventurer/svg?seed=' + encodeURIComponent(o.avatarSeed) + '&backgroundColor=f7efe2';
+}
+
+/**
+ * 随机命格：出身均匀抽取，天赋按 rarity/weight 加权。
+ * 返回 { origin, talent }，供进入游戏与测试共用。
+ */
+function rollFate(random = Math.random) {
+    const origins = window.ORIGINS || ORIGINS;
+    const talents = (window.TALENTS || TALENTS).filter(item => item.id !== 'mortal');
+    const origin = origins[Math.floor(random() * origins.length)] || origins[0];
+    const weighted = [];
+    for (const talent of talents) {
+        const weight = Math.max(0.01, (talent.weight || 10) * (TALENT_RARITY_WEIGHTS[talent.rarity] || 1));
+        const slots = Math.max(1, Math.round(weight));
+        for (let i = 0; i < slots; i++) weighted.push(talent);
+    }
+    const talent = weighted[Math.floor(random() * weighted.length)] || talents[0];
+    return { origin, talent };
 }
 
 const CARD_TYPE_LABELS = { pure: '✨ 纯增益', mixed: '⚖️ 利弊共存', cursed: '💀 诅咒', monster: '👿 妖祸契约' };
@@ -129,7 +213,20 @@ const MONSTERS = {
     qingyunBoss: { id: 'qingyunBoss', name: '赤鳞蟒', img: 'boss', hp: 310, atk: 12, speed: 1.05, r: 38, draw: 108, cult: 60, boss: true, vision: 280 },
     emberBoss: { id: 'emberBoss', name: '熔岩地龙', img: 'boss', hp: 720, atk: 18, speed: 1.15, r: 40, draw: 116, cult: 100, boss: true, tint: '#ed8549', vision: 300 },
     frostBoss: { id: 'frostBoss', name: '寒潭蛟王', img: 'boss', hp: 1050, atk: 24, speed: 1.25, r: 42, draw: 120, cult: 150, boss: true, tint: '#81dcf3', vision: 320 },
-    netherBoss: { id: 'netherBoss', name: '幽墟镇墓兽', img: 'boss', hp: 1450, atk: 29, speed: 1.4, r: 44, draw: 126, cult: 210, boss: true, tint: '#b388e8', vision: 350 }
+    netherBoss: { id: 'netherBoss', name: '幽墟镇墓兽', img: 'boss', hp: 1450, atk: 29, speed: 1.4, r: 44, draw: 126, cult: 210, boss: true, tint: '#b388e8', vision: 350 },
+
+    /* ===== 人形敌手：秘境里不再只有妖兽，也有拦路的散修、山匪与魔道 ===== */
+    bandit: { id: 'bandit', name: '拦路山匪', img: 'npcSprites', art: 'bandit', human: true, faction: '山匪', hp: 52, atk: 9, speed: 2.4, r: 16, draw: 64, cult: 14, vision: 210, tint: '#c79a65' },
+    cultist: { id: 'cultist', name: '魔道散修', img: 'npcSprites', art: 'cultist', human: true, faction: '魔道', hp: 64, atk: 12, speed: 2.6, r: 16, draw: 66, cult: 20, vision: 240, tint: '#c96a72' },
+    ronin: { id: 'ronin', name: '浪人剑客', img: 'npcSprites', art: 'ronin', human: true, faction: '散修', hp: 78, atk: 14, speed: 2.9, r: 17, draw: 68, cult: 24, vision: 260, tint: '#9fb2c9' },
+    fire_cultist: { id: 'fire_cultist', name: '赤炎邪修', img: 'npcSprites', art: 'cultist', human: true, faction: '魔道', hp: 70, atk: 14, speed: 2.5, r: 16, draw: 66, cult: 24, vision: 250, tint: '#e88a50' },
+    demon_spy: { id: 'demon_spy', name: '魔道探子', img: 'npcSprites', art: 'assassin', human: true, faction: '魔道', hp: 72, atk: 15, speed: 3.1, r: 16, draw: 64, cult: 28, vision: 280, tint: '#b46a8a' },
+    shadow_assassin: { id: 'shadow_assassin', name: '影杀', img: 'npcSprites', art: 'assassin', human: true, faction: '幽冥宗', hp: 82, atk: 17, speed: 3.4, r: 15, draw: 62, cult: 32, vision: 300, blink: true, tint: '#8f6fd0' },
+    ice_sword: { id: 'ice_sword', name: '寒潭剑仆', img: 'npcSprites', art: 'guqinghan', human: true, faction: '守境一脉', hp: 86, atk: 16, speed: 2.8, r: 16, draw: 66, cult: 30, vision: 270, tint: '#8ecfe6' },
+    frost_guardian: { id: 'frost_guardian', name: '守境人', img: 'npcSprites', art: 'hanxing', human: true, faction: '守境一脉', hp: 100, atk: 15, speed: 2.3, r: 18, draw: 70, cult: 34, vision: 260, tint: '#9fe7f2' },
+    sword_master: { id: 'sword_master', name: '剑术教习', img: 'npcSprites', art: 'zhaotieyi', human: true, faction: '青云门', hp: 96, atk: 17, speed: 2.7, r: 17, draw: 68, cult: 30, vision: 280, tint: '#d6c08a' },
+    guardian: { id: 'guardian', name: '青云护院', img: 'npcSprites', art: 'ashi', human: true, faction: '青云门', hp: 110, atk: 13, speed: 2.1, r: 18, draw: 70, cult: 24, vision: 240, tint: '#a8b6c4' },
+    soul_reaper: { id: 'soul_reaper', name: '引魂人', img: 'npcSprites', art: 'jichang', human: true, faction: '幽冥宗', hp: 104, atk: 19, speed: 2.6, r: 17, draw: 68, cult: 40, vision: 290, tint: '#b99de6' }
 };
 
 const FLOOR_POOL = [
@@ -159,9 +256,9 @@ const DUNGEONS = [
         colorTint: 'rgba(70, 115, 78, 0.10)',
         mods: { playerSpeed: 1, monsterSpeed: 1, damageTaken: 1, regen: 0.0015, visibility: 1 },
         floorPool: [
-            ['wolf', 'bat'], ['wolf', 'bat'], ['wolf', 'spider'], ['bat', 'spider'],
-            ['wolf', 'spider', 'slimelet'], ['bat', 'spider', 'slimelet'],
-            ['wolf', 'bat', 'spider'], ['spider', 'slimelet'], ['wolf', 'bat', 'spider'], ['qingyunBoss']
+            ['wolf', 'bat'], ['wolf', 'bat'], ['wolf', 'spider', 'bandit'], ['bat', 'spider', 'cultist'],
+            ['wolf', 'spider', 'slimelet'], ['bat', 'spider', 'slimelet', 'bandit'],
+            ['wolf', 'bat', 'spider', 'ronin'], ['spider', 'slimelet'], ['wolf', 'bat', 'spider', 'cultist'], ['qingyunBoss']
         ],
         techniques: ['qingyun_sword', 'breath_cycle', 'wind_step'], position: { x: 900, y: 1390 }
     },
@@ -176,7 +273,7 @@ const DUNGEONS = [
         bossElement: '#ff743e',
         colorTint: 'rgba(170, 70, 30, 0.20)',
         mods: { playerSpeed: 1.06, monsterSpeed: 1.02, damageTaken: 1.12, regen: 0, visibility: 1 },
-        floorPool: [['wolf', 'bat'], ['spider', 'brute'], ['charger', 'brute'], ['elite', 'charger'], ['emberBoss']],
+        floorPool: [['wolf', 'bat', 'bandit'], ['spider', 'brute', 'fire_cultist'], ['charger', 'brute', 'demon_spy'], ['elite', 'charger', 'fire_cultist'], ['emberBoss']],
         techniques: ['ember_blade', 'stone_skin'], position: { x: 2730, y: 1210 }
     },
     {
@@ -190,7 +287,7 @@ const DUNGEONS = [
         bossElement: '#8cecff',
         colorTint: 'rgba(75, 150, 190, 0.18)',
         mods: { playerSpeed: 0.94, monsterSpeed: 0.96, damageTaken: 1, regen: 0, visibility: 1, slip: 0.32 },
-        floorPool: [['bat', 'spider'], ['wraith', 'skeleton'], ['frostwitch', 'wraith'], ['shaman', 'frostwitch'], ['frostBoss']],
+        floorPool: [['bat', 'spider'], ['wraith', 'skeleton', 'ice_sword'], ['frostwitch', 'wraith', 'ice_sword'], ['shaman', 'frostwitch', 'frost_guardian'], ['frostBoss']],
         techniques: ['frost_breath', 'flowing_sword'], position: { x: 3020, y: 930 }
     },
     {
@@ -204,7 +301,7 @@ const DUNGEONS = [
         bossElement: '#b388e8',
         colorTint: 'rgba(95, 65, 130, 0.28)',
         mods: { playerSpeed: 1, monsterSpeed: 1.07, damageTaken: 1.05, regen: 0, visibility: 0.72 },
-        floorPool: [['wraith', 'spider'], ['shaman', 'slime'], ['elite', 'frostwitch'], ['elite', 'charger'], ['netherBoss']],
+        floorPool: [['wraith', 'spider', 'shadow_assassin'], ['shaman', 'slime', 'shadow_assassin'], ['elite', 'frostwitch', 'soul_reaper'], ['elite', 'charger', 'soul_reaper'], ['netherBoss']],
         techniques: ['soul_guard', 'void_step'], position: { x: 3260, y: 470 }
     }
 ];
@@ -303,7 +400,7 @@ const NPCS = [
         dungeonBehavior: { frost: { allyBuff: { shield: 0.3, heal: 0.2 }, hostile: { becomeEnemy: true, monsterId: 'frost_guardian' } } },
         combatStats: { hp: 250, atk: 24, speed: 2.8, skills: ['ice_wall', 'frost_nova'] }
     },
-    { id: 'suwan', name: '苏晚', title: '丹房执事', portrait: 'guqinghan', x: 1120, y: 1110, faction: '青云门', attitude: 'friendly', color: '#84c7dc', zone: 'overworld',
+    { id: 'suwan', name: '苏晚', title: '丹房执事', portrait: 'suwan', x: 1120, y: 1110, faction: '青云门', attitude: 'friendly', color: '#84c7dc', zone: 'overworld',
         greeting: '丹房苏晚。秘境里带回来的灵草、火晶，都可以拿到执事堂换灵石。',
         choices: [
             { text: '看看丹房寄卖的丹药', reply: '都是新炼的，别省着用。', favor: 6, shop: 'sect' },
@@ -313,7 +410,7 @@ const NPCS = [
         relation: { base: 20, thresholds: { ally: 40, friendly: 15, neutral: -5, hostile: -25 } },
         combatStats: { hp: 120, atk: 14, speed: 3.0, skills: ['heal'] }
     },
-    { id: 'zhaotieyi', name: '赵铁衣', title: '演武师兄', portrait: 'linyue', x: 1320, y: 1210, faction: '青云门', attitude: 'neutral', color: '#c9a467', zone: 'overworld',
+    { id: 'zhaotieyi', name: '赵铁衣', title: '演武师兄', portrait: 'zhaotieyi', x: 1320, y: 1210, faction: '青云门', attitude: 'neutral', color: '#c9a467', zone: 'overworld',
         greeting: '演武场赵铁衣。想在内门站稳脚跟，先把剑握稳。',
         choices: [
             { text: '请师兄喂招（攻击+2）', reply: '再来。剑不是挥给别人看的。', favor: 10, reward: { atk: 2 } },
@@ -323,7 +420,7 @@ const NPCS = [
         relation: { base: 5, thresholds: { ally: 35, friendly: 12, neutral: -10, hostile: -30 } },
         combatStats: { hp: 180, atk: 24, speed: 3.4, skills: ['dash', 'parry'] }
     },
-    { id: 'ashi', name: '阿石', title: '山门守弟子', portrait: 'shenli', x: 1060, y: 1250, faction: '青云门', attitude: 'friendly', color: '#c0a064', zone: 'overworld',
+    { id: 'ashi', name: '阿石', title: '山门守弟子', portrait: 'ashi', x: 1060, y: 1250, faction: '青云门', attitude: 'friendly', color: '#c0a064', zone: 'overworld',
         greeting: '山门重地，莫要乱闯。要办事就去执事堂找沈执事。',
         choices: [
             { text: '请他带路去宗门大殿', reply: '沿着石阶上去，执事堂就在主峰。', favor: 4, sect: true },
@@ -885,7 +982,10 @@ const STORY = [
         options: [
             { text: '推门而出，追着紫光去村口', next: 's1', effects: { cult: 12 }, toast: '你踏进夜色，紫光在前方引路' },
             { text: '先替邻家小妹诊脉，再出门', next: 's1', effects: { maxHp: 12, cult: 6 }, flags: { storyHeart: 1 }, toast: '你稳住小妹的脉息，心里也安定下来' },
-            { text: '闭门静坐，先把这缕灵气纳入丹田', next: 's1', effects: { maxHp: 6, atk: 2 }, toast: '一缕温热灵气沉入丹田' }
+            { text: '闭门静坐，先把这缕灵气纳入丹田', next: 's1', effects: { maxHp: 6, atk: 2 }, toast: '一缕温热灵气沉入丹田' },
+            { text: '🍂「孤苦」把仅剩的干粮留给小妹，独自推门', requiresOrigin: ['orphan'], next: 's1', effects: { maxHp: 12, cult: 8 }, flags: { fateKindHeart: 1 }, toast: '你空着肚子走进夜色，脚步却比谁都稳' },
+            { text: '📜「书香」翻出父亲旧书，循着紫光记载出门', requiresOrigin: ['scholar'], next: 's1', effects: { cult: 18, crit: 2 }, flags: { fateScholar: 1 }, toast: '书页上的古篆与天边紫光隐隐相合' },
+            { text: '🍀「福缘」循着梦里最亮的那颗星走', requiresTalent: ['lucky'], next: 's1', effects: { cult: 15 }, stones: 20, flags: { fateLuck: 1 }, toast: '你在门槛下摸到一枚不知谁遗落的灵石' }
         ]
     },
     {
@@ -894,7 +994,10 @@ const STORY = [
         options: [
             { text: '恭敬接过，郑重拜谢', next: 's2', effects: { cult: 25, maxHp: 10 }, toast: '获得《吐纳诀》与秘境玉符' },
             { text: '先问他为何守在这棵树下', next: 's2', effects: { cult: 15, crit: 4 }, toast: '老人笑而不答，只在你掌心画了一道符' },
-            { text: '后退半步，握紧剑柄', next: 's2', effects: { atk: 3, maxHp: 5 }, toast: '老人赞许地点头：「有戒心，才活得长。」' }
+            { text: '后退半步，握紧剑柄', next: 's2', effects: { atk: 3, maxHp: 5 }, toast: '老人赞许地点头：「有戒心，才活得长。」' },
+            { text: '📜「书香」辨出绢布上的古篆，郑重行礼', requiresOrigin: ['scholar'], next: 's2', effects: { cult: 30, crit: 3 }, flags: { fateScroll: 1 }, toast: '老人讶异地看着你，把《吐纳诀》翻到最后一页' },
+            { text: '🩸「煞骨」任煞气外露，逼问老人来历', requiresTalent: ['demonbone'], next: 's2', effects: { atk: 6, cult: 10 }, flags: { fateThreat: 1 }, toast: '老人不退反笑：「煞骨……有意思。」' },
+            { text: '🪙「商贾」把一袋铜钱放进无火灯里', requiresOrigin: ['merchant'], next: 's2', effects: { cult: 22 }, stones: 30, flags: { fateMerchant: 1 }, toast: '灯芯竟自行亮起一瞬' }
         ]
     },
     {
@@ -902,7 +1005,9 @@ const STORY = [
         desc: '当夜，丹田一热，一缕灵气自行运转周天——灵根觉醒了。\n玉符灼灼发光，将你传送到青云山门后的秘境。\n湿冷的风从石缝里钻出来，远处有兽吼，也有某种更沉重的东西在呼吸。\n长老的声音在虚空回荡：\n「斩尽十层妖兽者，方可入门。小心那些机缘——福祸相依。」',
         options: [
             { text: '⚔️ 调息片刻，稳住灵台再入秘境', enterDungeon: true, effects: { maxHp: 12 }, toast: '灵台清明，秘境试炼开始' },
-            { text: '⚔️ 趁灵气正盛，直接闯入', enterDungeon: true, effects: { atk: 4 }, toast: '剑锋出鞘，秘境试炼开始' }
+            { text: '⚔️ 趁灵气正盛，直接闯入', enterDungeon: true, effects: { atk: 4 }, toast: '剑锋出鞘，秘境试炼开始' },
+            { text: '⚔️「剑骨」以剑意劈开秘境入口', requiresTalent: ['swordbone'], enterDungeon: true, effects: { atk: 4, crit: 4 }, flags: { fateSword: 1 }, toast: '剑光落下，石壁裂开一道笔直的门' },
+            { text: '🌿「灵根」引秘境灵气入体再入门', requiresTalent: ['spiritroot'], enterDungeon: true, effects: { maxHp: 15, cult: 20 }, flags: { fateRoot: 1 }, toast: '灵气顺着经脉自行运转，灵台一片澄明' }
         ]
     },
     {
@@ -928,7 +1033,10 @@ const STORY = [
         options: [
             { text: '🏰 闯赤炎洞窟，取地火灵液', enterDungeon: true, effects: { cult: 30 }, toast: '踏入赤炎洞窟' },
             { text: '📚 先研习《青云剑典》（获得穿透剑气）', next: 's5', effects: { cult: 20, range: 8 }, toast: '习得穿透剑气' },
-            { text: '⚔️ 去演武场，先摸摸对手的底', next: 's5', effects: { atk: 3 }, toast: '你在演武场看了一整夜' }
+            { text: '⚔️ 去演武场，先摸摸对手的底', next: 's5', effects: { atk: 3 }, toast: '你在演武场看了一整夜' },
+            { text: '💰「商才」先与执事堂谈一笔火晶生意', requiresTalent: ['mercantile'], next: 's5', effects: { cult: 25 }, stones: 50, flags: { fateDeal: 1 }, toast: '你用三寸不烂之舌换到一笔盘缠' },
+            { text: '🏛️「世家」以旧族名义调阅地火图志', requiresOrigin: ['noble'], next: 's5', effects: { crit: 5, range: 6 }, flags: { fateNoble: 1 }, toast: '图中标注了一处被忽略的入口' },
+            { text: '🏹「猎户」循着地火气味的源头潜行', requiresOrigin: ['hunter'], next: 's5', effects: { speed: 0.2, atk: 2 }, flags: { fateHunter: 1 }, toast: '你从兽径摸清了洞窟的呼吸' }
         ]
     },
     {
@@ -937,7 +1045,10 @@ const STORY = [
         options: [
             { text: '⚔️ 正面应战，以剑对剑', next: 's6', effects: { cult: 40, atk: 5 }, toast: '三招之后，师兄收剑，眼神变了' },
             { text: '💨 以快打快，绕到他侧后', next: 's6', effects: { cult: 30, speed: 0.25 }, toast: '你从他剑影里穿过去，围观弟子一片哗然' },
-            { text: '🤝 抱拳认输，把力气留给赤炎洞窟', next: 's6', effects: { maxHp: 15, cult: 20 }, toast: '师兄愣了愣，收剑还礼' }
+            { text: '🤝 抱拳认输，把力气留给赤炎洞窟', next: 's6', effects: { maxHp: 15, cult: 20 }, toast: '师兄愣了愣，收剑还礼' },
+            { text: '🗡️「剑骨」一眼看穿师兄左肩的破绽', requiresTalent: ['swordbone'], next: 's6', effects: { cult: 40, atk: 4, crit: 3 }, flags: { fateFlaw: 1 }, toast: '你剑尖停在破绽前三寸，师兄脸色变了' },
+            { text: '🛡️「铁骨」硬接三招再还手', requiresTalent: ['ironbody'], next: 's6', effects: { maxHp: 15, atk: 2 }, flags: { fateIron: 1 }, toast: '三招过后，你半步未退' },
+            { text: '🍀「福缘」恰有长辈路过喝止', requiresTalent: ['lucky'], next: 's6', effects: { cult: 25, maxHp: 8 }, flags: { fateLuck2: 1 }, toast: '一声轻咳，师兄收了剑' }
         ]
     },
     {
@@ -945,7 +1056,9 @@ const STORY = [
         desc: '赤炎洞窟的地火突然失控，火脉倒灌，连石壁都在发红。\n长老传音：「灵液在熔岩心，熔岩地龙盘踞在那里。它不死，火脉不会平息。」\n你沿着裂开的岩缝深入，脚下每一步都在发烫。\n最深处，一对赤金色的竖瞳缓缓睁开。',
         options: [
             { text: '🏰 正面破开火脉，斩龙取液', enterDungeon: true, effects: { atk: 5 }, toast: '你一剑劈向火脉' },
-            { text: '🏰 先绕行火眼，寻找地龙弱点', enterDungeon: true, effects: { crit: 5, cult: 20 }, toast: '你看清了地火流动的方向' }
+            { text: '🏰 先绕行火眼，寻找地龙弱点', enterDungeon: true, effects: { crit: 5, cult: 20 }, toast: '你看清了地火流动的方向' },
+            { text: '⚗️「药骨」以药粉稳住灼伤，稳步深入', requiresTalent: ['alchemy'], enterDungeon: true, effects: { maxHp: 12 }, flags: { fateAlchemy: 1 }, toast: '药香压住灼痛，你比任何人都走得稳' },
+            { text: '🩸「煞骨」以煞气引开熔岩地龙的注意', requiresTalent: ['demonbone'], enterDungeon: true, effects: { atk: 5 }, flags: { fateTease: 1 }, toast: '地龙竟被你的煞气激得更加狂暴' }
         ]
     },
     {
@@ -971,7 +1084,9 @@ const STORY = [
         options: [
             { text: '⚔️ 报名问剑大会，先探古墟', next: 's9', effects: { cult: 50 }, toast: '报名问剑大会' },
             { text: '🏯 向掌门询问古墟封印', next: 's9', effects: { cult: 35, crit: 3 }, toast: '掌门只说：「金丹不是奖赏，是门槛。」' },
-            { text: '⚔️ 去演武场磨砺剑意', next: 's9', effects: { atk: 4 }, toast: '你在演武场练到深夜' }
+            { text: '⚔️ 去演武场磨砺剑意', next: 's9', effects: { atk: 4 }, toast: '你在演武场练到深夜' },
+            { text: '📜「书香」从门规里找出问剑大会的旧例', requiresOrigin: ['scholar'], next: 's9', effects: { cult: 40, crit: 4 }, flags: { fateLaw: 1 }, toast: '你发现今年的签序确实被人动过' },
+            { text: '🍂「孤苦」不声不响地摸清签筒的机关', requiresOrigin: ['orphan'], next: 's9', effects: { speed: 0.2, cult: 20 }, flags: { fateSneak: 1 }, toast: '签筒底部有一道新刻的暗槽' }
         ]
     },
     {
@@ -980,7 +1095,9 @@ const STORY = [
         options: [
             { text: '⚔️ 与苏清雪并肩入墟', next: 's10', effects: { cult: 60, atk: 4 }, toast: '苏清雪与你并肩踏上古墟石阶' },
             { text: '💨 独自先行，抢在所有人前面', next: 's10', effects: { cult: 60, speed: 0.25 }, toast: '你从阴影里穿过去，魂灯晃了一下' },
-            { text: '🛡️ 先与姬无常谈条件', next: 's10', effects: { cult: 45, maxHp: 15 }, toast: '姬无常笑了：「你会需要我的。」' }
+            { text: '🛡️ 先与姬无常谈条件', next: 's10', effects: { cult: 45, maxHp: 15 }, toast: '姬无常笑了：「你会需要我的。」' },
+            { text: '🩸「煞骨」以煞气震住暗中窥伺的魂灯', requiresTalent: ['demonbone'], next: 's10', effects: { atk: 5, crit: 5 }, flags: { fateAura: 1 }, toast: '魂灯里的火苗齐齐矮了一截' },
+            { text: '🤝「善心」把最后一份伤药递给受伤的同行者', requiresFlag: 'fateKindHeart', next: 's10', effects: { maxHp: 15, cult: 30 }, flags: { fateAlly: 1 }, toast: '对方记下了你的名字，愿在古墟里为你挡一次' }
         ]
     },
     {
@@ -1039,6 +1156,17 @@ window.MONSTER_CARDS = MONSTER_CARDS;
 window.MONSTER_RUN_CARDS = MONSTER_RUN_CARDS;
 window.REALMS = REALMS;
 window.ORIGINS = ORIGINS;
+window.TALENTS = TALENTS;
+window.rollFate = rollFate;
+window.TALENT_RARITY_WEIGHTS = TALENT_RARITY_WEIGHTS;
+/* 角色像素帧：npc-sprites.png 每帧 64x64，npc-portraits.png 每帧 100x125 */
+window.CHARACTER_ART = {
+    ningxiao: 0, linyue: 1, shenli: 2, guqinghan: 3, mochen: 4,
+    jichang: 5, hanxing: 6, suwan: 7, zhaotieyi: 8, ashi: 9,
+    cultist: 10, bandit: 11, ronin: 12, assassin: 13
+};
+window.CHARACTER_ART_FRAME = { w: 64, h: 64 };
+window.ART_PORTRAIT_FRAME = { w: 100, h: 125 };
 window.ACHIEVEMENTS = ACHIEVEMENTS;
 window.FLOOR_NAMES = FLOOR_NAMES;
 window.DUNGEON_FLOORS = DUNGEON_FLOORS;

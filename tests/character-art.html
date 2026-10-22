@@ -1,0 +1,21 @@
+﻿<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{margin:0;background:#333}canvas{display:block}</style></head><body><canvas id="c" width="1400" height="900"></canvas><script>
+const sprites=new Image(), portraits=new Image(); let loaded=0;
+function drawAll(){
+  if(++loaded<2) return;
+  const c=document.getElementById('c'),ctx=c.getContext('2d');
+  ctx.imageSmoothingEnabled=false;
+  ctx.fillStyle='#333';ctx.fillRect(0,0,c.width,c.height);
+  for(let i=0;i<14;i++){
+    const x=(i%7)*190+10, y=10+Math.floor(i/7)*180;
+    ctx.drawImage(sprites, i*64,0,64,64, x,y,160,160);
+  }
+  for(let i=0;i<14;i++){
+    const x=(i%7)*200, y=390+Math.floor(i/7)*260;
+    ctx.drawImage(portraits, i*100,0,100,125, x,y,200,250);
+  }
+}
+sprites.onload=drawAll; portraits.onload=drawAll;
+sprites.src='../assets/npc-sprites.png?v=5';
+portraits.src='../assets/npc-portraits.png?v=5';
+</script></body></html>
+
