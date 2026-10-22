@@ -7,9 +7,13 @@ function getStoryNode(id) {
 function getStoryDungeonId(storyId) {
     if (storyId === 's2') return 'qingyun';
     if (storyId === 's4' || storyId === 's6') return 'ember';
-    if (storyId === 's8') return 'frost';
     if (storyId === 's10') return 'nether';
     return 'qingyun';
+}
+
+if (typeof window !== 'undefined') {
+    window.getStoryNode = getStoryNode;
+    window.getStoryDungeonId = getStoryDungeonId;
 }
 
 function learnPermanentTechnique(techniqueId, source) {
@@ -57,24 +61,35 @@ function npcRelationLabel(score) {
 }
 
 function showNpcDialog(npc, line, hideChoices) {
+    if (!npc) return;
+    // 兜底：旧数据可能只有 npcId 或 name，补一个稳定 id 供关系/选项记录使用
+    if (!npc.id) npc.id = npc.npcId || npc.name || 'unknown';
     Engine.pauseForNpcDialog();
     let score = getNpcRelation(npc);
     let relation = npcRelationLabel(score);
     let portrait = $('npcPortrait');
+    if (!portrait) return;
     portrait.setAttribute('aria-label', (npc.name || '未知NPC') + '立绘');
-    
-    // 容错：如果npc.id缺失，尝试从name推断或使用默认立绘
-    const npcId = npc.id || (npc.name ? npc.name.toLowerCase().replace(/\s+/g, '') : 'ningxiao');
-    if (!Engine.drawNpcPortrait(npcId, portrait)) {
-        // 静默失败，显示占位符而非抛出错误
+
+    // 容错：立绘未加载/未知NPC时显示占位符，绝不中断对话
+    const npcId = npc.portrait || npc.id || 'ningxiao';
+    let drawn = false;
+    try {
+        drawn = !!Engine.drawNpcPortrait(npcId, portrait);
+    } catch (err) {
+        console.warn('NPC 立绘绘制失败:', err);
+    }
+    if (!drawn) {
         const ctx = portrait.getContext('2d');
-        ctx.fillStyle = '#333';
-        ctx.fillRect(0, 0, portrait.width, portrait.height);
-        ctx.fillStyle = '#fff';
-        ctx.font = '12px "Microsoft YaHei", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('?', portrait.width / 2, portrait.height / 2);
+        if (ctx) {
+            ctx.fillStyle = '#2a2a3e';
+            ctx.fillRect(0, 0, portrait.width, portrait.height);
+            ctx.fillStyle = '#fff';
+            ctx.font = '24px "Microsoft YaHei", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('?', portrait.width / 2, portrait.height / 2);
+        }
     }
     $('npcFaction').textContent = npc.faction || '未知';
     $('npcName').textContent = npc.name || '未知';
@@ -100,6 +115,16 @@ function chooseNpcOption(npc, choice, index) {
     if (npc.dungeonEncounter) {
         let result = Engine.resolveDungeonNpcEncounter(choice);
         showNpcDialog(npc, choice.reply + '\n\n' + result, true);
+        return;
+    }
+    if (choice.shop && typeof showShop === 'function') {
+        closeNpcDialog();
+        showShop(choice.shop);
+        return;
+    }
+    if (choice.sect && typeof showSect === 'function') {
+        closeNpcDialog();
+        showSect();
         return;
     }
     if (!G.npcChoices) G.npcChoices = {};
@@ -245,20 +270,48 @@ window.onWorldStoryNearby = function (node) {
     if (node) showStoryDialog(node);
 };
 
+const STORY_EFFECT_LABELS = {
+    cult: '修为', maxHp: '生命上限', atk: '攻击', speed: '速度',
+    range: '攻击范围', crit: '暴击', lifesteal: '吸血', hp: '当前生命'
+};
+
+function applyStoryEffects(effects) {
+    const lines = [];
+    if (!effects) return lines;
+    for (const key in effects) {
+        const value = effects[key];
+        if (!value) continue;
+        if (key === 'cult') G.cultivation += value;
+        else if (key === 'maxHp') {
+            G.maxHp += value;
+            G.hp = Math.max(1, Math.min(G.maxHp, G.hp + Math.max(0, value)));
+        } else if (key === 'atk') G.atk += value;
+        else if (key === 'speed') G.speed = +(G.speed + value).toFixed(2);
+        else if (key === 'range') G.range += value;
+        else if (key === 'crit') G.crit = Math.max(0, Math.min(80, G.crit + value));
+        else if (key === 'lifesteal') G.lifesteal = (G.lifesteal || 0) + value;
+        else if (key === 'hp') G.hp = Math.max(1, Math.min(G.maxHp, G.hp + value));
+        else continue;
+        const label = STORY_EFFECT_LABELS[key] || key;
+        lines.push(label + (value > 0 ? '+' : '') + value);
+    }
+    while (G.realm < window.REALMS.length - 1 && G.cultivation >= window.REALMS[G.realm + 1].cult) G.realm++;
+    G.hp = Math.max(1, Math.min(G.maxHp, G.hp));
+    updateHUD();
+    return lines;
+}
+
 function chooseStoryOption(node, idx) {
     let opt = node.options[idx];
     if (!opt) { console.error('无效选项索引:', idx); return; }
     if (G.story.done.indexOf(node.id) < 0) G.story.done.push(node.id);
-    if (opt.effects) {
-        for (let k in opt.effects) {
-            let v = opt.effects[k];
-            if (k === 'cult') G.cultivation += v;
-            else if (k === 'maxHp') { G.maxHp += v; }
-        }
-        while (G.realm < window.REALMS.length - 1 && G.cultivation >= window.REALMS[G.realm + 1].cult) G.realm++;
-        updateHUD();
+    const gained = applyStoryEffects(opt.effects);
+    if (opt.flags) Object.assign(G.flags, opt.flags);
+    if (opt.toast) {
+        toast(opt.toast + (gained.length ? ' · ' + gained.join('，') : ''), 'gold');
+    } else if (gained.length) {
+        toast('✨ ' + gained.join('，'), 'gold');
     }
-    if (opt.toast) toast(opt.toast, 'gold');
     checkAchievements();
 
     if (opt.ending) {
@@ -321,6 +374,9 @@ function eStat(label, val) {
 }
 
 window.onDungeonFloorClear = function (floor) {
+    if (typeof addSectContribution === 'function') {
+        addSectContribution((window.SECT && window.SECT.contributionPerFloor) || 8);
+    }
     let run = Engine.getState();
     if (run.skirmish) {
         Engine.finishRun(true);
@@ -363,7 +419,7 @@ window.onDungeonFloorClear = function (floor) {
         // 第二章的故事节点
         if (floor >= floorCount) {
             // 如果通关了秘境深层，可以进入下一个剧情节点（s7 - 构建基灵液）
-            toast('👑 魔化核心被毁！秘境深层通关！', 'gold');
+            toast('🔥 熔岩地龙被斩！赤炎洞窟通关！', 'gold');
             setTimeout(() => {
                 Engine.finishRun(true);
                 let node = getStoryNode('s7');
@@ -381,7 +437,7 @@ window.onDungeonFloorClear = function (floor) {
         // 第三章的故事节点
         if (floor >= floorCount) {
             // 如果通关了问剑大会秘境，可以进入下一个剧情节点（s11 - 金丹问剑冠军）
-            toast('👑 君莫邪被斩！秘境通关！', 'gold');
+            toast('💀 幽墟镇墓兽倒下！古墟通关！', 'gold');
             setTimeout(() => {
                 Engine.finishRun(true);
                 let node = getStoryNode('s11');

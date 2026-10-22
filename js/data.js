@@ -16,7 +16,10 @@ const G = {
     hp: 100,
     flags: {},
     story: { node: 's0', done: [] },
-    achievements: []
+    achievements: [],
+    inventory: {},
+    spiritStones: 0,
+    sect: { rank: 0, contribution: 0, lastSalary: '' }
 };
 // 模块化引擎通过 window.G 访问全局进度；旧引擎仍使用顶层 const G
 window.G = G;
@@ -219,7 +222,7 @@ const TECHNIQUES = [
 ];
 
 const NPCS = [
-    { id: 'ningxiao', name: '宁小雨', title: '迷路的外门弟子', portrait: 'ningxiao', x: 520, y: 1650, faction: '青云门', attitude: 'friendly', color: '#72b89d', zone: 'overworld',
+    { id: 'ningxiao', name: '宁小雨', title: '迷路的外门弟子', portrait: 'ningxiao', x: 470, y: 1730, faction: '青云门', attitude: 'friendly', color: '#72b89d', zone: 'overworld',
         greeting: '呼……终于见到同门了。我在采药时走散，附近好像有妖兽。',
         choices: [
             { text: '送她一枚回春丹', reply: '多谢道友！这本吐纳心得送你，愿能助你修行。', favor: 18, technique: 'breath_cycle', reward: { maxHp: 8 } },
@@ -234,6 +237,7 @@ const NPCS = [
     { id: 'linyue', name: '林越', title: '游历散修', portrait: 'linyue', x: 160, y: 1910, faction: '散修', attitude: 'neutral', color: '#859fbd', zone: 'overworld',
         greeting: '在下林越，四方游历的散修。修行路上，多一个朋友总好过多一个仇家。',
         choices: [
+            { text: '看看你的行囊货物', reply: '都是些走南闯北攒下的东西，挑挑看。', favor: 3, shop: 'linyue' },
             { text: '以灵石换取剑诀心得（攻击+2）', reply: '这招青云剑式是我观碑所得，就当结个善缘。', favor: 12, reward: { atk: 2 } },
             { text: '谈谈各处秘境', reply: '赤炎洞克制寒性功法，寒潭深处则常有幽魂出没。', favor: 4 },
             { text: '质疑他的话', reply: '道不同，不必强求。', favor: -12 }
@@ -245,6 +249,8 @@ const NPCS = [
     { id: 'shenli', name: '沈砺', title: '青云门执事', portrait: 'shenli', x: 1010, y: 1280, faction: '青云门', attitude: 'neutral', color: '#c0a064', zone: 'overworld',
         greeting: '外门执事沈砺。秘境按境界分了几处，莫要为了机缘越阶送命。',
         choices: [
+            { text: '前往宗门大殿', reply: '随我来。外门弟子该知道门中规矩。', favor: 5, sect: true },
+            { text: '看看执事堂的货物', reply: '丹药、护身符，都是行走秘境的硬通货。', favor: 4, shop: 'sect' },
             { text: '请教试炼规矩', reply: '青云外围适合炼气弟子。赤炎洞、寒潭与古墟，须有相应修为再入。', favor: 8 },
             { text: '请求指点剑法（攻击+3）', reply: '看好了，出剑不可只凭蛮力。', favor: 15, reward: { atk: 3 } },
             { text: '抱怨门规繁琐', reply: '不守规矩，便不必再叫我执事。', favor: -20 }
@@ -296,6 +302,36 @@ const NPCS = [
         relation: { base: 10, thresholds: { ally: 40, friendly: 15, neutral: -5, hostile: -25 } },
         dungeonBehavior: { frost: { allyBuff: { shield: 0.3, heal: 0.2 }, hostile: { becomeEnemy: true, monsterId: 'frost_guardian' } } },
         combatStats: { hp: 250, atk: 24, speed: 2.8, skills: ['ice_wall', 'frost_nova'] }
+    },
+    { id: 'suwan', name: '苏晚', title: '丹房执事', portrait: 'guqinghan', x: 1120, y: 1110, faction: '青云门', attitude: 'friendly', color: '#84c7dc', zone: 'overworld',
+        greeting: '丹房苏晚。秘境里带回来的灵草、火晶，都可以拿到执事堂换灵石。',
+        choices: [
+            { text: '看看丹房寄卖的丹药', reply: '都是新炼的，别省着用。', favor: 6, shop: 'sect' },
+            { text: '请教炼丹之道', reply: '火候到了，药性自然相合。急着成丹，只会炸炉。', favor: 8 },
+            { text: '帮忙整理药架', reply: '多谢。下次给你留一枚大还丹。', favor: 12, reward: { maxHp: 6 } }
+        ],
+        relation: { base: 20, thresholds: { ally: 40, friendly: 15, neutral: -5, hostile: -25 } },
+        combatStats: { hp: 120, atk: 14, speed: 3.0, skills: ['heal'] }
+    },
+    { id: 'zhaotieyi', name: '赵铁衣', title: '演武师兄', portrait: 'linyue', x: 1320, y: 1210, faction: '青云门', attitude: 'neutral', color: '#c9a467', zone: 'overworld',
+        greeting: '演武场赵铁衣。想在内门站稳脚跟，先把剑握稳。',
+        choices: [
+            { text: '请师兄喂招（攻击+2）', reply: '再来。剑不是挥给别人看的。', favor: 10, reward: { atk: 2 } },
+            { text: '打听问剑大会', reply: '今年的签排得蹊跷。你若真上场，多留个心眼。', favor: 5 },
+            { text: '与他切磋身法（速度+0.1）', reply: '脚下生根，才谈得上快。', favor: 12, reward: { speed: 0.1 } }
+        ],
+        relation: { base: 5, thresholds: { ally: 35, friendly: 12, neutral: -10, hostile: -30 } },
+        combatStats: { hp: 180, atk: 24, speed: 3.4, skills: ['dash', 'parry'] }
+    },
+    { id: 'ashi', name: '阿石', title: '山门守弟子', portrait: 'shenli', x: 1060, y: 1250, faction: '青云门', attitude: 'friendly', color: '#c0a064', zone: 'overworld',
+        greeting: '山门重地，莫要乱闯。要办事就去执事堂找沈执事。',
+        choices: [
+            { text: '请他带路去宗门大殿', reply: '沿着石阶上去，执事堂就在主峰。', favor: 4, sect: true },
+            { text: '问问门中近况', reply: '最近秘境不太平，夜里总能听见山腹里有动静。', favor: 3 },
+            { text: '塞给他几块灵石', reply: '这……我就当没看见。', favor: 8 }
+        ],
+        relation: { base: 15, thresholds: { ally: 30, friendly: 10, neutral: -10, hostile: -25 } },
+        combatStats: { hp: 140, atk: 16, speed: 2.8, skills: ['shield'] }
     }
 ];
 
@@ -352,8 +388,45 @@ const FLOOR_NAMES = [
 ];
 
 const ITEMS = [
-    { id: 'pill_hp', emoji: '💊', name: '回春丹', desc: '恢复50点生命（局内立即生效）', use: { hp: 50 } }
+    { id: 'pill_hp', emoji: '💊', name: '回春丹', type: 'consumable', rarity: 'common', icon: 'pill-red', price: 20, sell: 8, desc: '恢复 50 点生命。秘境中也可使用。', use: { hp: 50 } },
+    { id: 'pill_hp_major', emoji: '🧪', name: '大还丹', type: 'consumable', rarity: 'uncommon', icon: 'pill-gold', price: 65, sell: 26, desc: '恢复 120 点生命。', use: { hp: 120 } },
+    { id: 'pill_qi', emoji: '🌀', name: '聚气散', type: 'consumable', rarity: 'common', icon: 'pill-blue', price: 35, sell: 14, desc: '获得 40 点修为。', use: { cult: 40 } },
+    { id: 'pill_attack', emoji: '⚔️', name: '淬体丹', type: 'consumable', rarity: 'uncommon', icon: 'pill-red', price: 90, sell: 36, desc: '永久攻击 +2。', use: { atk: 2 } },
+    { id: 'pill_life', emoji: '🛡️', name: '养元丹', type: 'consumable', rarity: 'uncommon', icon: 'pill-gold', price: 100, sell: 40, desc: '永久生命上限 +15。', use: { maxHp: 15 } },
+    { id: 'talisman_shield', emoji: '🧿', name: '护身符', type: 'consumable', rarity: 'uncommon', icon: 'talisman', price: 40, sell: 16, desc: '获得 40 点护盾；秘境中立即生效。', use: { shield: 40 } },
+    { id: 'herb_ling', emoji: '🌿', name: '灵草', type: 'material', rarity: 'common', icon: 'herb', price: 0, sell: 6, desc: '带着清苦药香的灵草，可用于炼丹或出售。' },
+    { id: 'ore_iron', emoji: '🪨', name: '玄铁', type: 'material', rarity: 'common', icon: 'ore', price: 0, sell: 8, desc: '沉重的玄铁矿石，炼器材料。' },
+    { id: 'crystal_fire', emoji: '🔥', name: '火晶', type: 'material', rarity: 'uncommon', icon: 'crystal-fire', price: 0, sell: 12, desc: '赤炎洞窟凝结的火属性晶石。' },
+    { id: 'crystal_ice', emoji: '❄️', name: '寒晶', type: 'material', rarity: 'uncommon', icon: 'crystal-ice', price: 0, sell: 12, desc: '寒潭深处凝结的冰属性晶石。' },
+    { id: 'meat_beast', emoji: '🍖', name: '妖兽精肉', type: 'material', rarity: 'common', icon: 'meat', price: 0, sell: 5, desc: '妖兽身上最紧实的一块肉，可出售。' },
+    { id: 'jade_slip', emoji: '📜', name: '青云玉简', type: 'treasure', rarity: 'rare', icon: 'scroll', price: 80, sell: 32, desc: '记载着青云旧事的玉简，收藏家会出价。' },
+    { id: 'sect_token', emoji: '🪪', name: '宗门令', type: 'treasure', rarity: 'rare', icon: 'token', price: 0, sell: 50, desc: '青云门弟子的信物，可兑换贡献或出售。' }
 ];
+
+const SECT = {
+    id: 'qingyun',
+    name: '青云门',
+    motto: '剑气长存，道心不折',
+    ranks: [
+        { name: '外门弟子', contribution: 0, realmMin: 0, salary: 20, discount: 0 },
+        { name: '内门弟子', contribution: 120, realmMin: 4, salary: 50, discount: 0.05 },
+        { name: '核心弟子', contribution: 400, realmMin: 9, salary: 120, discount: 0.1 }
+    ],
+    contributionPerFloor: 8,
+    contributionPerBoss: 25,
+    contributionPerClear: 20
+};
+
+const SHOPS = {
+    sect: {
+        id: 'sect', name: '青云门·执事堂', keeper: '沈砺',
+        stock: ['pill_hp', 'pill_qi', 'talisman_shield', 'pill_hp_major', 'pill_attack', 'pill_life']
+    },
+    linyue: {
+        id: 'linyue', name: '林越的行囊', keeper: '林越',
+        stock: ['pill_hp', 'herb_ling', 'crystal_fire', 'crystal_ice', 'jade_slip']
+    }
+};
 
 /* ==================== 玩家强化卡池 ==================== */
 const PLAYER_CARDS = [
@@ -808,36 +881,41 @@ const STORY = [
     /* ============ 第一章：灵气觉醒 ============ */
     {
         id: 's0', tag: '📖 第一章 · 灵气觉醒', title: '山雨欲来',
-        desc: '大衍历三百二十年，青云山下的小村庄。\n夜里，你总梦见同一片星空——星子一颗接一颗亮起。\n这天傍晚，天边泛起异样紫光，村中犬吠此起彼伏。\n沉寂三百年的灵气，正在复苏。',
+        desc: '大衍历三百二十年，青云山下的村庄。\n暮色压着屋脊，你却在梦里看见一片不该存在的星空——星子一颗接一颗亮起，照见一条没有尽头的山路。\n醒来时，天边正泛起紫光，村中犬吠此起彼伏。\n隔壁传来邻家小妹压不住的咳嗽声。你握紧门框，忽然明白：沉寂三百年的灵气，正在复苏。',
         options: [
-            { text: '出门查看紫光', next: 's1', effects: { cult: 10 }, toast: '你推门走向村口' },
-            { text: '闭门静坐吐纳', next: 's1', effects: { maxHp: 5 }, toast: '你在屋中静坐吐纳' }
+            { text: '推门而出，追着紫光去村口', next: 's1', effects: { cult: 12 }, toast: '你踏进夜色，紫光在前方引路' },
+            { text: '先替邻家小妹诊脉，再出门', next: 's1', effects: { maxHp: 12, cult: 6 }, flags: { storyHeart: 1 }, toast: '你稳住小妹的脉息，心里也安定下来' },
+            { text: '闭门静坐，先把这缕灵气纳入丹田', next: 's1', effects: { maxHp: 6, atk: 2 }, toast: '一缕温热灵气沉入丹田' }
         ]
     },
     {
         id: 's1', tag: '🎭 奇遇', title: '老槐树下的老人',
-        desc: '村口老槐树下坐着一个衣衫褴褛的老人。\n「小娃娃，紫光现世，灵气将复，你怕不怕？」\n他从怀里摸出一卷泛黄绢布——正是《吐纳诀》。\n老人又递来一枚古朴玉符：「持此符可入青云山秘境试炼。」',
+        desc: '村口老槐树下坐着个衣衫褴褛的老人，脚边搁着一盏没有火的灯。\n他抬眼看你，像早已知晓你会来。\n「小娃娃，紫光现世，灵气将复。你怕不怕？」\n他从怀里摸出一卷泛黄绢布，封皮上写着《吐纳诀》。\n「拿着。山门要开了，可山门里等的，未必都是机缘。」',
         options: [
-            { text: '恭敬接过，郑重拜谢', next: 's2', effects: { cult: 25, maxHp: 10 }, toast: '获得《吐纳诀》与秘境玉符' }
+            { text: '恭敬接过，郑重拜谢', next: 's2', effects: { cult: 25, maxHp: 10 }, toast: '获得《吐纳诀》与秘境玉符' },
+            { text: '先问他为何守在这棵树下', next: 's2', effects: { cult: 15, crit: 4 }, toast: '老人笑而不答，只在你掌心画了一道符' },
+            { text: '后退半步，握紧剑柄', next: 's2', effects: { atk: 3, maxHp: 5 }, toast: '老人赞许地点头：「有戒心，才活得长。」' }
         ]
     },
     {
         id: 's2', tag: '🌟 转折', title: '灵根觉醒·秘境试炼',
-        desc: '当夜，丹田一热，一缕灵气自行运转周天——灵根觉醒了！\n手中玉符灼灼发光，将你传送到青云山门后的秘境。\n长老的声音在虚空回荡：\n「斩尽十层妖兽者，方可入门。小心那些机缘——福祸相依。」',
+        desc: '当夜，丹田一热，一缕灵气自行运转周天——灵根觉醒了。\n玉符灼灼发光，将你传送到青云山门后的秘境。\n湿冷的风从石缝里钻出来，远处有兽吼，也有某种更沉重的东西在呼吸。\n长老的声音在虚空回荡：\n「斩尽十层妖兽者，方可入门。小心那些机缘——福祸相依。」',
         options: [
-            { text: '⚔️ 拔剑进入秘境（WASD移动，J/空格攻击）', enterDungeon: true, effects: {}, toast: '🏰 秘境试炼开始！' }
+            { text: '⚔️ 调息片刻，稳住灵台再入秘境', enterDungeon: true, effects: { maxHp: 12 }, toast: '灵台清明，秘境试炼开始' },
+            { text: '⚔️ 趁灵气正盛，直接闯入', enterDungeon: true, effects: { atk: 4 }, toast: '剑锋出鞘，秘境试炼开始' }
         ]
     },
     {
         id: 's3', tag: '📖 第一章 · 完', title: '青云入门',
-        desc: '你带着满身煞气与机缘走出秘境，长老眼中满是赞许。\n「十层俱过，心性可嘉。从今日起，你便是青云外门弟子。」\n山风拂过，钟声再响——\n你的修仙之路，正式开始了。\n\n—— 第一章「灵气觉醒」· 完 ——',
+        desc: '你带着满身煞气与机缘走出秘境。\n长老没有立刻说话，只看着你剑上的缺口，又看了看你身后那道正在闭合的门。\n「十层俱过，心性可嘉。」他把一枚外门弟子牌递到你手里，\n「从今日起，你便是青云外门弟子。记住，山门里最不缺的，就是聪明人。」\n山风拂过，钟声再响。你的修仙之路，正式开始了。',
         options: [
-            { text: '🏆 查看本章结算', next: 'c1_end', effects: {}, toast: '第一章通关！' }
+            { text: '双手接过弟子牌，郑重行礼', next: 'c1_end', effects: { cult: 40 }, toast: '你正式成为青云外门弟子' },
+            { text: '问长老：秘境里的紫光究竟是什么', next: 'c1_end', effects: { cult: 20, crit: 3 }, toast: '长老沉默片刻：「等你站得更高，自然会知道。」' }
         ]
     },
     {
         id: 'c1_end', tag: '🏆 结算', title: '第一章结算',
-        desc: '境界提升，新功法初成。\n青云门内，诸峰林立，灵气浓郁。\n你的修仙之路才刚刚起步。',
+        desc: '境界提升，新功法初成。\n青云门内，诸峰林立，灵气浓郁。\n你在弟子居所推开窗，看见远处演武场上有人练剑，剑光如一线秋水。\n修仙之路，才刚刚起步。',
         options: [
             { text: '📜 继续修行（进入第二章）', next: 's4', effects: { cult: 50 }, toast: '踏入第二章·筑基之路' }
         ]
@@ -845,38 +923,42 @@ const STORY = [
 
     /* ============ 第二章：筑基之路 ============ */
     {
-        id: 's4', tag: '📖 第二章 · 筑基之路', title: '外门日常',
-        desc: '成为外门弟子半月，你在灵田除草、练剑、吐纳。\n一日，执事长老传话：「外门大比将近，前三入内门，赐筑基丹。」\n你的修为尚浅，唯有冒险秘境深处，寻那传说中的「筑基灵液」。',
+        id: 's4', tag: '📖 第二章 · 筑基之路', title: '地火之约',
+        desc: '成为外门弟子半月，你在灵田除草、练剑、吐纳。\n一日，执事长老传话：「外门大比将近，前三入内门，赐筑基丹。」\n你的修为尚浅。演武场边，几个内门弟子正等着看你的笑话。\n长老压低声音：「赤炎洞窟深处有地火灵液，可洗髓筑基。只是那头熔岩地龙，最近醒了。」',
         options: [
-            { text: '🏰 再闯秘境深层（解锁11-20层）', enterDungeon: true, effects: { cult: 30 }, toast: '踏入秘境深层' },
-            { text: '📚 先研习《青云剑典》（获得穿透剑气）', next: 's5', effects: { cult: 20 }, toast: '习得穿透剑气' }
+            { text: '🏰 闯赤炎洞窟，取地火灵液', enterDungeon: true, effects: { cult: 30 }, toast: '踏入赤炎洞窟' },
+            { text: '📚 先研习《青云剑典》（获得穿透剑气）', next: 's5', effects: { cult: 20, range: 8 }, toast: '习得穿透剑气' },
+            { text: '⚔️ 去演武场，先摸摸对手的底', next: 's5', effects: { atk: 3 }, toast: '你在演武场看了一整夜' }
         ]
     },
     {
         id: 's5', tag: '⚔️ 切磋', title: '师兄挑战',
-        desc: '练武场上，内门师兄拦路：「外门弟子也想要筑基丹？先接我三招！」\n他手中灵剑嗡鸣，杀意毕露。围观弟子窃窃私语。',
+        desc: '练武场上，内门师兄拦路。\n「外门弟子也想要筑基丹？先接我三招！」\n他手中灵剑嗡鸣，围观弟子窃窃私语。\n你看见他起手时左肩会先沉半寸——那是破绽。',
         options: [
-            { text: '⚔️ 应战（获得连击术）', next: 's6', effects: { cult: 40 }, toast: '战胜师兄，习得连击术' },
-            { text: '🤝 认输示弱（获得闪避身法）', next: 's6', effects: { maxHp: 15 }, toast: '保全实力，习得闪避身法' }
+            { text: '⚔️ 正面应战，以剑对剑', next: 's6', effects: { cult: 40, atk: 5 }, toast: '三招之后，师兄收剑，眼神变了' },
+            { text: '💨 以快打快，绕到他侧后', next: 's6', effects: { cult: 30, speed: 0.25 }, toast: '你从他剑影里穿过去，围观弟子一片哗然' },
+            { text: '🤝 抱拳认输，把力气留给赤炎洞窟', next: 's6', effects: { maxHp: 15, cult: 20 }, toast: '师兄愣了愣，收剑还礼' }
         ]
     },
     {
-        id: 's6', tag: '🗺️ 探秘', title: '秘境异变',
-        desc: '秘境深处突然涌出浓重魔气，原本的妖兽变得狂暴异常。\n长老传音：「秘境核心有魔族遗留的「吞灵阵」，需破阵方能取灵液。」\n你深入核心，遭遇魔化妖兽围攻。',
+        id: 's6', tag: '🗺️ 探秘', title: '地火异变',
+        desc: '赤炎洞窟的地火突然失控，火脉倒灌，连石壁都在发红。\n长老传音：「灵液在熔岩心，熔岩地龙盘踞在那里。它不死，火脉不会平息。」\n你沿着裂开的岩缝深入，脚下每一步都在发烫。\n最深处，一对赤金色的竖瞳缓缓睁开。',
         options: [
-            { text: '🏰 破阵取液（挑战深层Boss）', enterDungeon: true, effects: {}, toast: '挑战魔化核心' }
+            { text: '🏰 正面破开火脉，斩龙取液', enterDungeon: true, effects: { atk: 5 }, toast: '你一剑劈向火脉' },
+            { text: '🏰 先绕行火眼，寻找地龙弱点', enterDungeon: true, effects: { crit: 5, cult: 20 }, toast: '你看清了地火流动的方向' }
         ]
     },
     {
-        id: 's7', tag: '💎 收获', title: '筑基灵液',
-        desc: '魔化核心被斩，阵眼碎裂，一滴金色灵液飞入你丹田。\n体内灵力轰鸣，经脉拓宽，气海凝实——筑基成！\n长老现身：「筑基大成，赐你内门身份，传《青云护身诀》。」',
+        id: 's7', tag: '💎 收获', title: '地火灵液',
+        desc: '熔岩地龙倒下，赤红的火脉渐渐平息。\n一滴金红色的地火灵液从岩心渗出，落入你掌心。\n灵力自丹田轰鸣而上，经脉拓宽，气海凝实——筑基成。\n长老看着你，又看了看正在冷却的洞窟：\n「筑基大成，赐你内门身份，传《青云护身诀》。地火灵液只是开始，幽冥古墟那边，最近也不安分。」',
         options: [
-            { text: '🏆 查看本章结算', next: 'c2_end', effects: { cult: 200, maxHp: 50, atk: 10 }, toast: '筑基成！进入第三章' }
+            { text: '🏆 查看本章结算', next: 'c2_end', effects: { cult: 200, maxHp: 50, atk: 10 }, toast: '筑基成！进入第三章' },
+            { text: '先问长老：幽冥古墟是什么地方', next: 'c2_end', effects: { cult: 160, crit: 4 }, toast: '长老只说了一个名字：幽墟镇墓兽' }
         ]
     },
     {
         id: 'c2_end', tag: '🏆 结算', title: '第二章结算',
-        desc: '筑基大成，正式成为内门弟子。\n获得《青云护身诀》（护盾机制解锁）。\n秘境深层已开放，更多机缘与危险并存。',
+        desc: '筑基大成，正式成为内门弟子。\n获得《青云护身诀》（护盾机制解锁）。\n赤炎洞窟的火脉已平，但掌门说，幽冥古墟的封印正在松动。\n你站在内门灵峰上，看见云海之下有一道黑线——像一道正在裂开的口子。',
         options: [
             { text: '📜 继续精进（进入第三章）', next: 's8', effects: { cult: 100 }, toast: '踏入第三章·金丹问道' }
         ]
@@ -884,31 +966,34 @@ const STORY = [
 
     /* ============ 第三章：金丹问道 ============ */
     {
-        id: 's8', tag: '📖 第三章 · 金丹问道', title: '内门风云',
-        desc: '内门弟子三百，争锋相对。\n掌门宣布：「三年一度「问剑大会」开启，冠军赐「金丹碎片」，集齐九枚可结金丹。」\n你虽新晋内门，却因秘境之名声鹊起，成为众矢之的。',
+        id: 's8', tag: '📖 第三章 · 金丹问道', title: '古墟封印',
+        desc: '内门弟子三百，争锋相对。\n掌门宣布：「三年一度问剑大会照旧，但今年冠军的彩头，是幽冥古墟里的一枚金丹碎片。」\n「古墟封印松动，幽墟镇墓兽苏醒。谁能取回金丹碎片，谁便是这一届问剑魁首。」\n散场时，有人在廊下低声说：今年的签，怕是早就排好了。',
         options: [
-            { text: '⚔️ 报名问剑大会（PVP模式解锁）', next: 's9', effects: { cult: 50 }, toast: '报名问剑大会' },
-            { text: '🏰 闭关秘境磨砺（解锁无尽模式）', enterDungeon: true, effects: { cult: 80 }, toast: '进入无尽秘境' }
+            { text: '⚔️ 报名问剑大会，先探古墟', next: 's9', effects: { cult: 50 }, toast: '报名问剑大会' },
+            { text: '🏯 向掌门询问古墟封印', next: 's9', effects: { cult: 35, crit: 3 }, toast: '掌门只说：「金丹不是奖赏，是门槛。」' },
+            { text: '⚔️ 去演武场磨砺剑意', next: 's9', effects: { atk: 4 }, toast: '你在演武场练到深夜' }
         ]
     },
     {
-        id: 's9', tag: '⚔️ 初战', title: '首轮对决',
-        desc: '擂台之上，对手是内门排名前十的「寒冰剑」苏清雪。\n「师弟手下留情。」她微笑，手中冰剑已出鞘。\n寒气弥漫，剑未至，意先到。',
+        id: 's9', tag: '⚔️ 古墟入口', title: '同行者',
+        desc: '幽冥古墟入口，阴风从裂开的石碑间吹出。\n苏清雪抱剑立在阶前：「师弟也来了？古墟里不分先后，只看谁能活着出来。」\n姬无常从阴影里走出，指尖转着一盏没有火的魂灯：\n「两位，古墟的规矩是——拿东西，得留下点什么。」',
         options: [
-            { text: '⚔️ 硬接（获得反伤刺甲）', next: 's10', effects: { cult: 60 }, toast: '硬抗冰剑，领悟反伤' },
-            { text: '💨 以快打快（获得瞬影突刺）', next: 's10', effects: { cult: 60 }, toast: '闪现破冰，领悟瞬影' }
+            { text: '⚔️ 与苏清雪并肩入墟', next: 's10', effects: { cult: 60, atk: 4 }, toast: '苏清雪与你并肩踏上古墟石阶' },
+            { text: '💨 独自先行，抢在所有人前面', next: 's10', effects: { cult: 60, speed: 0.25 }, toast: '你从阴影里穿过去，魂灯晃了一下' },
+            { text: '🛡️ 先与姬无常谈条件', next: 's10', effects: { cult: 45, maxHp: 15 }, toast: '姬无常笑了：「你会需要我的。」' }
         ]
     },
     {
-        id: 's10', tag: '🏆 问剑', title: '问道金丹',
-        desc: '连胜数轮，你站在了决赛擂台。\n对手是内门第一「焚天剑」君莫邪，周身燃烧着金色火焰。\n「这一战，胜者问鼎金丹。」掌门朗声道。\n金乌烈火 vs 你的道——生死一线。',
+        id: 's10', tag: '🏆 古墟', title: '镇墓兽',
+        desc: '古墟深处，九盏魂灯围着一座残破祭坛。\n祭坛中央悬着一枚金丹碎片，碎片下方，幽墟镇墓兽缓缓抬头。\n姬无常的声音从背后传来：「它守了几百年，可不会讲道理。」\n苏清雪拔剑：「我替你挡住魂灯，你去取碎片。」\n你握紧剑柄，火把在风里晃了一下。',
         options: [
-            { text: '🔥 决战（最终Boss战）', enterDungeon: true, effects: {}, toast: '决战君莫邪' }
+            { text: '⚔️ 决战镇墓兽', enterDungeon: true, effects: { atk: 5 }, toast: '你踏进祭坛' },
+            { text: '🛡️ 先破魂灯，再取碎片', enterDungeon: true, effects: { crit: 6, maxHp: 20 }, toast: '魂灯一盏盏熄灭' }
         ]
     },
     {
-        id: 's11', tag: '👑 加冕', title: '金丹成·问剑冠军',
-        desc: '烈火熄灭，君莫邪剑尖停在你喉前一寸。\n「你赢了。」他收剑，目光复杂。\n掌门抛来九枚金丹碎片，汇聚成一颗圆满金丹，飞入你丹田。\n丹田金光爆发，神识拓展百里——金丹成！\n「问剑冠军，赐号「剑心」，传位核心弟子。」\n\n—— 第三章「金丹问道」· 完 ——\n（无尽秘境与问剑大会常驻开放，继续追求大道）',
+        id: 's11', tag: '👑 加冕', title: '金丹成·古墟归来',
+        desc: '幽墟镇墓兽倒下，九盏魂灯同时熄灭。\n金丹碎片落入你掌心，与体内灵力相合，凝成一颗圆满金丹。\n丹田金光爆发，神识拓展百里——金丹成。\n姬无常看着你，笑了笑：「下一次见面，希望你还没被这颗金丹吞掉。」\n掌门在古墟外等候：「问剑魁首，赐号「剑心」，入核心弟子。」\n\n—— 第三章「金丹问道」· 完 ——\n（幽冥古墟仍会开放，继续追求大道）',
         options: [
             { text: '🏆 查看最终结算', ending: true, effects: { cult: 500, maxHp: 100, atk: 30, crit: 15 }, toast: '金丹成！大道无尽' }
         ]
@@ -922,13 +1007,13 @@ const STORY_LOCATIONS = {
     c1_end: { x: 1510, y: 1010, name: '外门弟子居所', icon: '🏯', kind: 'sect' },
     s4: { x: 1840, y: 820, name: '外门演武场', icon: '⚔️', kind: 'arena' },
     s5: { x: 2150, y: 1040, name: '问剑台', icon: '🗡️', kind: 'arena' },
-    s6: { x: 2480, y: 820, name: '秘境深层·吞灵阵', icon: '🔮', kind: 'portal' },
-    s7: { x: 2820, y: 590, name: '秘境核心', icon: '💠', kind: 'portal' },
+    s6: { x: 2480, y: 820, name: '赤炎洞窟·地火脉', icon: '🔥', kind: 'portal' },
+    s7: { x: 2820, y: 590, name: '赤炎洞窟·熔岩心', icon: '💠', kind: 'portal' },
     c2_end: { x: 2580, y: 410, name: '内门灵峰', icon: '🏯', kind: 'sect' },
     s8: { x: 2200, y: 300, name: '青云主峰·议事殿', icon: '🏯', kind: 'sect' },
-    s9: { x: 1830, y: 470, name: '问剑大会·初赛擂台', icon: '⚔️', kind: 'arena' },
-    s10: { x: 1450, y: 650, name: '问剑大会·决赛台', icon: '🔥', kind: 'arena' },
-    s11: { x: 1040, y: 430, name: '金丹加冕台', icon: '👑', kind: 'sect' }
+    s9: { x: 1830, y: 470, name: '幽冥古墟·入口', icon: '🕯️', kind: 'portal' },
+    s10: { x: 1450, y: 650, name: '幽冥古墟·镇墓殿', icon: '💀', kind: 'portal' },
+    s11: { x: 1040, y: 430, name: '幽冥古墟·金丹坛', icon: '👑', kind: 'sect' }
 };
 
 const ACHIEVEMENTS = [
@@ -958,6 +1043,8 @@ window.ACHIEVEMENTS = ACHIEVEMENTS;
 window.FLOOR_NAMES = FLOOR_NAMES;
 window.DUNGEON_FLOORS = DUNGEON_FLOORS;
 window.ITEMS = ITEMS;
+window.SECT = SECT;
+window.SHOPS = SHOPS;
 window.CARD_TYPE_LABELS = CARD_TYPE_LABELS;
 window.MONSTERS = MONSTERS;
 window.FLOOR_POOL = FLOOR_POOL;

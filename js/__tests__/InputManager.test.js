@@ -133,6 +133,13 @@ describe('InputManager', () => {
     expect(inputManager.consumeInteract()).toBe(true);
   });
 
+  test('快速点按 E：keydown 后立刻 keyup 也不丢输入', () => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' }));
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE' }));
+    expect(inputManager.consumeInteract()).toBe(true);
+    expect(inputManager.consumeInteract()).toBe(false);
+  });
+
   test('鼠标位置更新', () => {
     const rect = canvas.getBoundingClientRect();
     const mousemove = new MouseEvent('mousemove', {

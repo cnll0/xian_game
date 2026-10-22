@@ -86,6 +86,10 @@ class Engine {
         return Engine.getInstance()._interactStory();
     }
 
+    static getStoryTarget() {
+        return Engine.getInstance()._getStoryTarget();
+    }
+
     static nextFloor() {
         return Engine.getInstance()._nextFloor();
     }
@@ -133,13 +137,13 @@ class Engine {
 
         this.inputManager = new window.InputManager(this.canvas);
         
-        // ???MapGeneratorWorker (??????)
+        // 初始化 MapGeneratorWorker（失败时回退同步生成）
         this.mapGeneratorWorker = new window.MapGeneratorWorker();
         try {
             await this.mapGeneratorWorker.init();
-            console.log('[Engine] MapGeneratorWorker ?????');
+            console.log('[Engine] MapGeneratorWorker 初始化成功');
         } catch (err) {
-            console.warn('[Engine] MapGeneratorWorker ????????????:', err);
+            console.warn('[Engine] MapGeneratorWorker 初始化失败，回退同步生成:', err);
             this.mapGeneratorWorker = null;
         }
 
@@ -165,8 +169,7 @@ class Engine {
             player_north: 'assets/player/player_north.png',
             player_south: 'assets/player/player_south.png',
             player_west: 'assets/player/player_west.png',
-            player_northwest: 'assets/player/player_northwest.png',
-            player_southwest: 'assets/player/player_southwest.png',
+            player_east: 'assets/player/player_east.png',
             npcSprites: 'assets/npc-sprites.svg',
             wolf: 'assets/wolf.webp',
             brute: 'assets/brute.webp',
@@ -181,6 +184,10 @@ class Engine {
             sword: 'assets/sword.webp',
             floor: 'assets/floor.webp'
         };
+        for (let i = 0; i < 8; i++) {
+            list['slash_' + i] = 'assets/attack/slash_' + i + '.png';
+            list['claw_' + i] = 'assets/attack/claw_' + i + '.png';
+        }
 
         await this.assetLoader.loadImages(list);
         this.gameState.runtime.assets.images = Object.fromEntries(this.assetLoader.loadedAssets);
@@ -221,6 +228,7 @@ class Engine {
     }
 
     _startRun(startFloor, storyDungeon, dungeonId, skirmish) {
+        if (this.worldSystem) this.worldSystem.hideQuestTracker();
         this.combatSystem.startRun(startFloor, storyDungeon, dungeonId, skirmish);
         this.start();
     }
@@ -243,6 +251,10 @@ class Engine {
 
     _interactStory() {
         return this.worldSystem.tryInteract();
+    }
+
+    _getStoryTarget() {
+        return this.worldSystem ? this.worldSystem.getStoryTarget() : null;
     }
 
     _nextFloor() {
@@ -341,20 +353,9 @@ class Engine {
     }
 
     _drawNpcPortrait(npcId, canvas) {
+        if (!canvas || typeof canvas.getContext !== 'function') return false;
         const ctx = canvas.getContext('2d');
-        const img = this.gameState.runtime.assets.images.npcSprites;
-        
-        // 如果图片未加载完成，绘制占位符并返回true避免上层抛错
-        if (!img || !img.complete) {
-            ctx.fillStyle = '#2a2a3e';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = '#888';
-            ctx.font = '10px "Microsoft YaHei", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText('加载中...', canvas.width / 2, canvas.height / 2);
-            return true;
-        }
+        if (!ctx) return false;
 
         const npcPortraits = {
             ningxiao: { x: 0, y: 0 },
@@ -366,22 +367,38 @@ class Engine {
             hanxing: { x: 576, y: 0 }
         };
 
+        const img = this.gameState.runtime.assets.images.npcSprites;
         const pos = npcPortraits[npcId];
-        if (!pos) {
-            // 未知NPC ID，绘制问号占位符
-            ctx.fillStyle = '#2a2a3e';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = '#fff';
-            ctx.font = '24px "Microsoft YaHei", sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText('?', canvas.width / 2, canvas.height / 2);
+
+        // 图片未加载完成或未知 NPC：绘制占位符并返回 true，避免中断对话流程
+        if (!img || !img.complete || !img.naturalWidth || !pos) {
+            this._drawNpcPortraitPlaceholder(ctx, canvas, img ? '?' : '加载中...');
             return true;
         }
 
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, pos.x, pos.y, 96, 96, 0, 0, 96, 96);
-        return true;
+        try {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.imageSmoothingEnabled = false;
+            const size = Math.min(canvas.width, canvas.height);
+            const dx = (canvas.width - size) / 2;
+            const dy = (canvas.height - size) / 2;
+            ctx.drawImage(img, pos.x, pos.y, 96, 96, dx, dy, size, size);
+            return true;
+        } catch (err) {
+            console.warn('NPC 立绘绘制失败:', err);
+            this._drawNpcPortraitPlaceholder(ctx, canvas, '?');
+            return true;
+        }
+    }
+
+    _drawNpcPortraitPlaceholder(ctx, canvas, text) {
+        ctx.fillStyle = '#2a2a3e';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#fff';
+        ctx.font = (text === '?' ? '24px' : '12px') + ' "Microsoft YaHei", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, canvas.width / 2, canvas.height / 2);
     }
 
     _getRunCardRank(cardId) {
@@ -562,7 +579,17 @@ class Engine {
         const dungeonWorldScene = state === 'dungeon_world' ||
             (state === 'dialog' && this.gameState.runtime.npcPausedState === 'dungeon_world');
         const worldHint = document.getElementById('worldHint');
-        if (worldHint) worldHint.style.display = (worldScene || dungeonWorldScene) ? 'block' : 'none';
+        if (worldHint) {
+            worldHint.style.display = (worldScene || dungeonWorldScene) ? 'block' : 'none';
+            // 大地图的提示由 WorldSystem._updateWorldHint 按当前交互目标动态更新；
+            // 这里只负责秘境固定提示，避免每帧覆盖剧情指引。
+            if (dungeonWorldScene) {
+                const hint = this.combatSystem
+                    ? this.combatSystem.getDungeonHint()
+                    : 'WASD / 方向键移动 · 靠近出口进入下一层 · 靠近 NPC 按 E 交谈';
+                if (worldHint.textContent !== hint) worldHint.textContent = hint;
+            }
+        }
 
         if (state === 'loading') {
             this._drawLoadingScreen();
@@ -578,52 +605,52 @@ class Engine {
     }
 
     /**
-     * ??????
+     * 绘制加载画面
      * @private
      */
     _drawLoadingScreen() {
         const ctx = this.ctx;
         const { W, H } = this.gameState.constants;
 
-        // ??
+        // 背景
         ctx.fillStyle = '#1a1a2e';
         ctx.fillRect(0, 0, W, H);
 
-        // ?????????
+        // 呼吸脉冲
         const time = this.gameState.runtime.time || 0;
         const pulse = 0.5 + Math.sin(time * 3) * 0.5;
 
         ctx.save();
         ctx.translate(W / 2, H / 2);
 
-        // ??
+        // 外圈
         ctx.strokeStyle = `rgba(78, 205, 196, ${0.3 + pulse * 0.4})`;
         ctx.lineWidth = 4;
         ctx.beginPath();
         ctx.arc(0, 0, 60 + pulse * 20, 0, Math.PI * 2);
         ctx.stroke();
 
-        // ??????
+        // 旋转内环
         ctx.strokeStyle = `rgba(255, 215, 100, ${0.4 + pulse * 0.3})`;
         ctx.lineWidth = 3;
         ctx.beginPath();
         ctx.arc(0, 0, 40 - pulse * 10, time * 2, time * 2 + Math.PI * 1.5);
         ctx.stroke();
 
-        // ????
+        // 标题
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 28px "Microsoft YaHei", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('修仙传说2D', 0, -60);
 
-        // ????
+        // 进度提示
         ctx.font = '16px "Microsoft YaHei", sans-serif';
         ctx.fillStyle = '#aaa';
         const dots = '.'.repeat(Math.floor(time * 2) % 4);
         ctx.fillText('正在生成秘境' + dots, 0, 0);
 
-        // ????
+        // 副标题
         ctx.font = '12px "Microsoft YaHei", sans-serif';
         ctx.fillStyle = '#666';
         ctx.fillText('正在铺开地图，请稍候', 0, 60);

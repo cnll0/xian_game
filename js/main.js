@@ -64,6 +64,8 @@ function init() {
 
     $('saveBtn').addEventListener('click', () => saveGame(true));
     $('menuBtn').addEventListener('click', () => showOverlay('menuOverlay'));
+    if ($('bagBtn')) $('bagBtn').addEventListener('click', () => showInventory());
+    if ($('sectBtn')) $('sectBtn').addEventListener('click', () => showSect());
     if ($('muteBtn')) {
         $('muteBtn').textContent = window.audioManager && window.audioManager.muted ? '🔇' : '🔊';
         $('muteBtn').addEventListener('click', () => {
@@ -79,7 +81,12 @@ function init() {
     });
     $('btnStory').addEventListener('click', () => {
         if (Engine.getState().state === 'world') {
-            if (!Engine.interactStory()) toast('四处走走，靠近人物、遗迹或擂台时会遇到故事', 'good');
+            if (!Engine.interactStory()) {
+                const target = Engine.getStoryTarget ? Engine.getStoryTarget() : null;
+                toast(target
+                    ? '🎯 剧情目标：' + target.name + ' · ' + target.direction + '方约' + Math.round(target.distance) + '米'
+                    : '四处走走，靠近人物、遗迹或擂台时会遇到故事', 'gold');
+            }
             return;
         }
         if (Engine.isRunning()) { toast('⚔️ 战斗中无法推进剧情', 'bad'); return; }
@@ -120,6 +127,10 @@ function init() {
 
 function showGameShell() {
     $('gameShell').style.display = 'flex';
+    // 登录输入框可能还保持焦点，会让 WASD/E 被 isTyping 拦截
+    if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+    }
     Engine.fitCanvas();
     updateHUD();
 }
@@ -146,8 +157,15 @@ function newGame(originId) {
     G.npcChoices = {};
     G.npcRewardClaims = {};
     G.achievements = [];
+    G.inventory = {};
+    G.spiritStones = 30;
+    G.sect = { rank: 0, contribution: 0, lastSalary: '' };
+    addItem('pill_hp', 1);
     if (o.startItem) {
-        toast(o.emoji + ' 获得开局道具', 'gold');
+        addItem(o.startItem, 1);
+        toast('🎒 开局行囊：回春丹 ×1 · ' + (getItemDef(o.startItem)?.name || '道具') + ' ×1 · 灵石 ×30', 'gold');
+    } else {
+        toast('🎒 开局行囊：回春丹 ×1 · 灵石 ×30', 'gold');
     }
     hideOverlay('createOverlay');
     showGameShell();
@@ -171,6 +189,8 @@ function updateHUD() {
     if (hpText) hpText.textContent = Math.max(0, Math.round(curHp)) + '/' + maxHp;
     let cultEl = $('hudCult');
     if (cultEl) cultEl.textContent = '🌀' + G.cultivation;
+    let stoneEl = $('hudStones');
+    if (stoneEl) stoneEl.textContent = '💎' + (G.spiritStones || 0);
     let statEl = $('hudStats');
     let runMods = inDungeon && state.player ? state.player.mods : null;
     if (statEl) statEl.textContent = '⚔️' + (G.atk + (runMods ? runMods.atk : 0)) +
@@ -387,7 +407,11 @@ function showCodex() {
     function renderItemCodex() {
         let html = '<div class="codex-grid">';
         for (let it of ITEMS) {
-            html += '<div class="codex-card item"><div class="codex-card-header"><span class="codex-icon">' + it.emoji + '</span><span class="codex-name">' + it.name + '</span></div><div class="codex-desc">' + it.desc + '</div></div>';
+            let meta = (itemTypeLabel(it) || '物品') + (it.sell ? ' · 售价 ' + it.sell + ' 灵石' : '');
+            html += '<div class="codex-card item"><div class="codex-card-header">' +
+                itemIconHTML(it) + '<span class="codex-name">' + it.name + '</span></div>' +
+                '<div class="codex-desc">' + it.desc + '</div>' +
+                '<div class="codex-type">' + meta + '</div></div>';
         }
         html += '</div>';
         document.getElementById('codex-item').innerHTML = html;

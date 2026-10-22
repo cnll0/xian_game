@@ -167,7 +167,9 @@ class MapGeneratorWorker {
      * @returns {Promise<Object>} 完整的秘境世界数据
      */
     async generateDungeonWorld(dungeon, floor, mapSeed) {
-        return this._request('GENERATE_DUNGEON_WORLD', { dungeon, floor, mapSeed });
+        // Worker 返回的消息体形如 { floor, world }，这里只取 world
+        const { world } = await this._request('GENERATE_DUNGEON_WORLD', { dungeon, floor, mapSeed });
+        return world;
     }
 
     /**

@@ -8,7 +8,11 @@ function initCompatibilityLayer() {
     window.floatText = function(x, y, text, color) {
         const runtime = window.gameState && window.gameState.runtime;
         if (runtime) {
-            runtime.texts.push({ x, y, text, color, t: 0, life: 1.2, vy: -30 });
+            // 同一帧的伤害/治疗数字错开并向上堆叠，避免叠成“-512”
+            const recent = runtime.texts.filter(item => item.t < 0.22).length;
+            const jitterX = (Math.random() - 0.5) * 18;
+            const jitterY = (Math.random() - 0.5) * 6 - Math.min(4, recent) * 17;
+            runtime.texts.push({ x: x + jitterX, y: y + jitterY, text, color, t: 0, life: 1.2, vy: -30 });
         }
     };
 

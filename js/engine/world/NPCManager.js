@@ -8,6 +8,10 @@ class NPCManager {
     }
 
     showDialog(npc, line, hideChoices = false) {
+        if (!npc) {
+            console.warn('NPC 对话数据为空，已忽略');
+            return;
+        }
         this.currentNPC = npc;
         if (window.Engine && typeof window.Engine.pauseForNpcDialog === 'function') {
             window.Engine.pauseForNpcDialog();
@@ -18,15 +22,23 @@ class NPCManager {
         const relation = this.getRelationLabel(score);
 
         const portrait = document.getElementById('npcPortrait');
-        portrait.setAttribute('aria-label', npc.name + '立绘');
-        if (!window.Engine.drawNpcPortrait(npc.id, portrait)) {
-            throw new Error('NPC portrait sprite is not ready: ' + npc.id);
+        if (portrait) {
+            portrait.setAttribute('aria-label', (npc.name || '未知NPC') + '立绘');
+            const npcId = npc.portrait || npc.id || npc.npcId || 'ningxiao';
+            let drawn = false;
+            try {
+                drawn = !!(window.Engine && typeof window.Engine.drawNpcPortrait === 'function' &&
+                    window.Engine.drawNpcPortrait(npcId, portrait));
+            } catch (err) {
+                console.warn('NPC 立绘绘制失败:', err);
+            }
+            if (!drawn) this._drawPortraitPlaceholder(portrait);
         }
 
-        document.getElementById('npcFaction').textContent = npc.faction;
-        document.getElementById('npcName').textContent = npc.name;
-        document.getElementById('npcTitle').textContent = npc.title;
-        document.getElementById('npcDialogue').textContent = line || npc.greeting;
+        document.getElementById('npcFaction').textContent = npc.faction || '未知';
+        document.getElementById('npcName').textContent = npc.name || '未知';
+        document.getElementById('npcTitle').textContent = npc.title || '';
+        document.getElementById('npcDialogue').textContent = line || npc.greeting || '……';
 
         const badge = document.getElementById('npcRelation');
         badge.textContent = relation.label;
@@ -48,6 +60,18 @@ class NPCManager {
 
         this.currentOverlay = 'npcOverlay';
         window.showOverlay('npcOverlay');
+    }
+
+    _drawPortraitPlaceholder(portrait) {
+        const ctx = portrait.getContext && portrait.getContext('2d');
+        if (!ctx) return;
+        ctx.fillStyle = '#2a2a3e';
+        ctx.fillRect(0, 0, portrait.width, portrait.height);
+        ctx.fillStyle = '#fff';
+        ctx.font = '24px "Microsoft YaHei", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('?', portrait.width / 2, portrait.height / 2);
     }
 
     chooseOption(npc, choice, index) {
@@ -102,6 +126,7 @@ class NPCManager {
     }
 
     getRelation(npc) {
+        if (!npc.id) npc.id = npc.npcId || npc.name || 'unknown';
         if (!window.G.npcRelations) window.G.npcRelations = {};
         if (typeof window.G.npcRelations[npc.id] !== 'number') {
             window.G.npcRelations[npc.id] = npc.attitude === 'friendly' ? 24 :

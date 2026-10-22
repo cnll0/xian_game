@@ -7,16 +7,43 @@ class CardSystem {
     }
 
     showDualCardChoice() {
-        this._pendingPlayerCards = this._drawCards(window.PLAYER_CARDS || [], 3, 'player');
+        this._pendingPlayerCards = this._drawCards(
+            (window.PLAYER_CARDS || []).filter(c => c.type !== 'cursed'), 3, 'player');
         this._pendingMonsterCards = this._drawCards(
             (window.MONSTER_CARDS || []).filter(c => c.type !== 'cursed'), 3, 'monster');
-        this._pendingCurseCards = this._rollCurseCard();
+        this._pendingCurseCards = [];
+        this._curseOccupy = null;
+        // 诅咒属于玩家/妖魔卡池，25% 概率随机占用其中一列的一张卡位
+        if (Math.random() < 0.25) this._attachCurseCard();
         this.state.state = 'choosing';
         this._renderDualUI();
     }
 
+    _attachCurseCard() {
+        const side = Math.random() < 0.5 ? 'player' : 'monster';
+        const pool = (side === 'player' ? window.PLAYER_CARDS : window.MONSTER_CARDS) || [];
+        const ranks = this.state.cards[side];
+        const available = pool.filter(c => c.type === 'cursed' && (ranks[c.id] || 0) < 3);
+        if (!available.length) return null;
+
+        const curse = available[Math.floor(Math.random() * available.length)];
+        const cards = side === 'player' ? this._pendingPlayerCards : this._pendingMonsterCards;
+        const index = Math.floor(Math.random() * cards.length);
+        const replaced = cards[index];
+        cards[index] = Object.assign({}, curse, {
+            rank: ranks[curse.id] || 0,
+            selected: false,
+            selectedBranch: null,
+            curseOccupied: true,
+            curseSide: side,
+            replacedCard: replaced ? replaced.id : null
+        });
+        this._curseOccupy = { side, index, cardId: curse.id };
+        return this._curseOccupy;
+    }
+
     /**
-     * 诅咒不是独立类型：每次抽卡至多出现 1 张，25% 概率插在玩家/妖魔两列之间。
+     * 旧测试/兼容接口：返回一张随机诅咒卡，不再直接参与三列 UI。
      * @returns {Object[]}
      */
     _rollCurseCard() {
@@ -45,15 +72,14 @@ class CardSystem {
     _renderDualUI() {
         const columns = [
             { side: 'player', id: 'playerCardChoices', title: '✨ 玩家强化', cards: this._pendingPlayerCards },
-            ...(this._pendingCurseCards.length
-                ? [{ side: 'curse', id: 'curseCardChoices', title: '💀 诅咒机缘', cards: this._pendingCurseCards }]
-                : []),
             { side: 'monster', id: 'monsterCardChoices', title: '👿 妖魔强化', cards: this._pendingMonsterCards }
         ];
 
-        let html = '<h2>🎴 第' + this.state.floor + '层 · 玩家与妖魔选择数量需相同' +
-            (this._pendingCurseCards.length ? '，中间可额外选 1 张诅咒' : '') + '</h2>';
-        html += '<div class="dual-cards' + (this._pendingCurseCards.length ? ' has-curse' : '') + '">';
+        const curseNote = this._curseOccupy
+            ? ' · 诅咒已占用' + (this._curseOccupy.side === 'player' ? '玩家' : '妖魔') + '一张卡位'
+            : '';
+        let html = '<h2>🎴 第' + this.state.floor + '层 · 玩家与妖魔选择数量需相同' + curseNote + '</h2>';
+        html += '<div class="dual-cards">';
         for (const column of columns) {
             html += '<div class="card-column"><h3>' + column.title + '</h3>';
             html += '<div class="card-choices" id="' + column.id + '">';
@@ -114,8 +140,10 @@ class CardSystem {
                 (v > 0 || v === true ? 'positive' : 'negative') + '">' + value + '</span></div>';
         }
 
+        const occupied = card.curseOccupied ? ' curse-occupied' : '';
         return '<div class="choice-card ' + sideClass + ' ' + (card.rarity || 'common') + ' ' +
-            (card.type || '') + curseClass + selected + '" data-side="' + side + '" data-id="' + card.id + '">' +
+            (card.type || '') + curseClass + occupied + selected + '" data-side="' + side + '" data-id="' + card.id + '">' +
+            (card.curseOccupied ? '<span class="curse-slot-badge">诅咒占位</span>' : '') +
             window.cardArt(card.id) +
             '<div class="card-name">' + card.name + '<span class="card-rank">' + this._cardRankLabel(rank + 1) + '</span></div>' +
             '<div class="card-desc">' + card.desc + '</div>' +
@@ -158,7 +186,7 @@ class CardSystem {
         if (!button) return;
         const pSel = this._pendingPlayerCards.filter(c => c.selected).length;
         const mSel = this._pendingMonsterCards.filter(c => c.selected).length;
-        const branchReady = this._pendingPlayerCards.concat(this._pendingMonsterCards, this._pendingCurseCards)
+        const branchReady = this._pendingPlayerCards.concat(this._pendingMonsterCards)
             .every(c => !c.selected || (c.rank || 0) < 2 || !!c.selectedBranch);
         const ready = pSel === mSel && branchReady;
         button.disabled = !ready;
@@ -176,15 +204,16 @@ class CardSystem {
         };
         apply(this._pendingPlayerCards, 'player');
         apply(this._pendingMonsterCards, 'monster');
-        apply(this._pendingCurseCards, 'monster');
         if (window.audioManager) window.audioManager.card();
         this._pendingPlayerCards = [];
         this._pendingMonsterCards = [];
         this._pendingCurseCards = [];
+        this._curseOccupy = null;
         window.checkAchievements();
         window.saveGame(false);
         window.hideOverlay('dualCardOverlay');
-        this.state.state = 'playing';
+        // 秘境世界模式下要恢复到 dungeon_world，否则会退回竞技场渲染
+        this.state.state = this.state.dungeonWorldMode ? 'dungeon_world' : 'playing';
         window.updateHUD();
     }
 

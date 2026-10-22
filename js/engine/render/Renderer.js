@@ -454,29 +454,52 @@ class EntityRenderer {
         ctx.drawImage(img, portal.x - 32 * pulse, portal.y - 32 * pulse, 64 * pulse, 64 * pulse);
     }
 
-    static _drawPlayer(ctx, p, gameState) {
-        const images = gameState.runtime.assets.images;
-        const direction = window.WorldRenderer
-            ? window.WorldRenderer._characterDirection(p.facing || 0).direction
-            : 'south';
+    static _drawPlayer(ctx, p, gameStateOrImages, time) {
+        // 兼容两种调用方式：竞技场/世界传入 gameState，秘境世界传入 images + time
+        const isGameState = !!(gameStateOrImages && gameStateOrImages.runtime);
+        const images = isGameState ? gameStateOrImages.runtime.assets.images : (gameStateOrImages || {});
+        const now = typeof time === 'number' ? time : (isGameState ? gameStateOrImages.runtime.time : 0);
+        const charDir = window.WorldRenderer
+            ? window.WorldRenderer._characterDirection(p.facing || 0)
+            : { direction: 'south', flipH: false };
+        const direction = charDir.direction;
         const img = images['player_' + direction] || images.player_south || images.player;
         if (!img) return;
 
         ctx.save();
-        ctx.translate(p.x, p.y);
+        const swingProgress = p.swinging > 0 ? 1 - Math.min(1, p.swinging / 0.24) : 0;
+        const lunge = p.swinging > 0 ? Math.sin(swingProgress * Math.PI) * 7 : 0;
+        ctx.translate(
+            p.x + Math.cos(p.facing || 0) * lunge,
+            p.y + Math.sin(p.facing || 0) * lunge
+        );
+        if (charDir.flipH) ctx.scale(-1, 1);
 
-        const frame = Math.floor(p.walkT / p.anim.frameTime) % p.anim.cols;
-        const fw = p.anim.fw, fh = p.anim.fh;
+        const anim = p.anim || { fw: 64, fh: 64, cols: 8, frameTime: 0.1 };
+        const frame = Math.floor(p.walkT / anim.frameTime) % anim.cols;
+        const fw = anim.fw, fh = anim.fh;
 
         if (p.swinging > 0) {
-            ctx.globalAlpha = 0.8;
-            ctx.strokeStyle = p.mods.elemFire ? '#ff6b35' : p.mods.elemIce ? '#4ecdc4' : '#fff';
-            ctx.lineWidth = 4;
+            // 顺着朝向的剑光拖尾；真正的刀光由 EffectRenderer 的 slash 特效绘制
+            ctx.save();
+            ctx.rotate(p.facing || 0);
+            const trail = -0.85 + swingProgress * 1.7;
+            ctx.globalAlpha = 0.25 + (1 - Math.abs(swingProgress - 0.5) * 2) * 0.45;
+            ctx.strokeStyle = p.mods.elemFire ? '#ff9b63' : p.mods.elemIce ? '#a8efff' : '#fff3c4';
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
             ctx.beginPath();
-            ctx.moveTo(0, 0);
-            ctx.lineTo(Math.cos(p.facing) * 60, Math.sin(p.facing) * 60);
+            ctx.arc(0, 0, 48, trail - 0.55, trail + 0.55);
             ctx.stroke();
-            ctx.globalAlpha = 1;
+            // 剑身/剑尖高光，避免只有一圈弧光
+            ctx.globalAlpha = 0.9;
+            ctx.strokeStyle = '#fff8d0';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(12, 0);
+            ctx.lineTo(46, 0);
+            ctx.stroke();
+            ctx.restore();
         }
 
         if (img.width > fw) {
@@ -486,7 +509,7 @@ class EntityRenderer {
         if (p.shield > 0) {
             ctx.strokeStyle = '#4ecdc4';
             ctx.lineWidth = 3;
-            ctx.globalAlpha = 0.5 + Math.sin(gameState.runtime.time * 10) * 0.3;
+            ctx.globalAlpha = 0.5 + Math.sin(now * 10) * 0.3;
             ctx.beginPath();
             ctx.arc(0, 0, p.r + 8, 0, Math.PI * 2);
             ctx.stroke();
@@ -494,14 +517,18 @@ class EntityRenderer {
         }
 
         if (p.invuln > 0) {
-            ctx.globalAlpha = 0.5 + Math.sin(gameState.runtime.time * 20) * 0.5;
+            ctx.globalAlpha = 0.5 + Math.sin(now * 20) * 0.5;
         }
 
         ctx.restore();
     }
 
-    static _drawMonster(ctx, m, gameState) {
-        const img = gameState.runtime.assets.images[m.img];
+    static _drawMonster(ctx, m, gameStateOrImages) {
+        // 兼容两种调用方式：竞技场/世界传入 gameState，秘境世界传入 images
+        const images = gameStateOrImages && gameStateOrImages.runtime
+            ? gameStateOrImages.runtime.assets.images
+            : (gameStateOrImages || {});
+        const img = images[m.img];
         if (!img) return;
 
         ctx.save();
@@ -561,14 +588,41 @@ class EffectRenderer {
         const time = gameState.runtime.time || 0;
 
         if (e.type === 'slash') {
+            const images = gameState.runtime.assets.images;
+            const dir = ((Math.round((e.a || 0) / (Math.PI / 4)) % 8) + 8) % 8;
+            const texture = images[(e.monster ? 'claw_' : 'slash_') + dir];
+            if (texture) {
+                // 8 个方向各有一张生成好的刀光/爪击贴图，不再用一条直线
+                ctx.save();
+                ctx.translate(e.x, e.y);
+                ctx.globalAlpha = 1 - prog;
+                ctx.globalCompositeOperation = 'lighter';
+                const size = (e.r || 46) * 2.6;
+                ctx.drawImage(texture, -size / 2, -size / 2, size, size);
+                ctx.restore();
+                ctx.globalAlpha = 1;
+                return;
+            }
+
             ctx.save();
             ctx.translate(e.x, e.y);
             ctx.rotate(e.a || 0);
-            ctx.beginPath();
-            ctx.arc(0, 0, (e.r || 46) * (0.7 + prog * 0.3), -1.1, 1.1);
+            ctx.lineCap = 'round';
             ctx.strokeStyle = e.color || '#7df9ff';
-            ctx.globalAlpha = 1 - prog;
-            ctx.lineWidth = 8 * (1 - prog) + 2;
+            // 贴图缺失时的回退：三层弧光
+            for (let i = 0; i < 3; i++) {
+                const radius = (e.r || 46) * (0.7 + prog * 0.3) - i * 7;
+                ctx.beginPath();
+                ctx.arc(0, 0, Math.max(8, radius), -1.18 + i * 0.09, 1.18 - i * 0.09);
+                ctx.globalAlpha = (1 - prog) * (0.9 - i * 0.24);
+                ctx.lineWidth = (9 - i * 2.5) * (1 - prog) + 1.5;
+                ctx.stroke();
+            }
+            ctx.beginPath();
+            ctx.arc(0, 0, Math.max(8, (e.r || 46) * (0.7 + prog * 0.3)), -0.35, 0.35);
+            ctx.globalAlpha = (1 - prog) * 0.9;
+            ctx.strokeStyle = '#fff7d6';
+            ctx.lineWidth = 2;
             ctx.stroke();
             ctx.restore();
             ctx.globalAlpha = 1;
@@ -746,9 +800,14 @@ class EffectRenderer {
     static _drawText(ctx, t) {
         ctx.save();
         ctx.globalAlpha = 1 - t.t / (t.life || 1);
-        ctx.fillStyle = t.color;
-        ctx.font = 'bold 16px sans-serif';
+        ctx.font = 'bold 19px "Microsoft YaHei", sans-serif';
         ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(10, 8, 12, 0.85)';
+        ctx.strokeText(t.text, t.x, t.y);
+        ctx.fillStyle = t.color;
         ctx.fillText(t.text, t.x, t.y);
         ctx.restore();
     }
@@ -759,9 +818,12 @@ class TrapRenderer {
         gameState.runtime.traps.forEach(trap => this._drawTrap(ctx, trap, gameState));
     }
 
-    static _drawTrap(ctx, trap, gameState) {
-        const cycle = Math.floor((gameState.runtime.time + trap.phase) / trap.period);
-        const phaseTime = (gameState.runtime.time + trap.phase) % trap.period;
+    static _drawTrap(ctx, trap, gameStateOrTime) {
+        // 兼容两种调用方式：竞技场传入 gameState，秘境世界直接传入 time
+        const time = typeof gameStateOrTime === 'number'
+            ? gameStateOrTime
+            : (gameStateOrTime && gameStateOrTime.runtime ? gameStateOrTime.runtime.time : 0);
+        const phaseTime = (time + trap.phase) % trap.period;
         const active = phaseTime >= trap.warning && phaseTime < trap.warning + trap.activeDuration;
         const warning = phaseTime < trap.warning && phaseTime > trap.warning - 0.5;
 
@@ -778,7 +840,7 @@ class TrapRenderer {
         switch (trap.type) {
             case 'roots':
                 for (let i = 0; i < 6; i++) {
-                    const a = i * Math.PI / 3 + gameState.runtime.time * 2;
+                    const a = i * Math.PI / 3 + time * 2;
                     ctx.beginPath();
                     ctx.moveTo(0, 0);
                     ctx.lineTo(Math.cos(a) * trap.radius, Math.sin(a) * trap.radius);
@@ -787,7 +849,7 @@ class TrapRenderer {
                 break;
             case 'blade':
                 for (let i = 0; i < 2; i++) {
-                    const a = i * Math.PI + gameState.runtime.time * 1.65;
+                    const a = i * Math.PI + time * 1.65;
                     ctx.beginPath();
                     ctx.moveTo(Math.cos(a) * 10, Math.sin(a) * 10);
                     ctx.lineTo(Math.cos(a) * trap.radius, Math.sin(a) * trap.radius);
@@ -804,7 +866,7 @@ class TrapRenderer {
                 break;
             case 'bone':
                 for (let i = 0; i < 3; i++) {
-                    const a = i * Math.PI * 2 / 3 + gameState.runtime.time * 0.72;
+                    const a = i * Math.PI * 2 / 3 + time * 0.72;
                     ctx.beginPath();
                     ctx.moveTo(Math.cos(a) * 15, Math.sin(a) * 15);
                     ctx.lineTo(Math.cos(a) * trap.radius, Math.sin(a) * trap.radius);
@@ -854,7 +916,7 @@ class TrapRenderer {
                 ctx.strokeStyle = trap.color;
                 ctx.lineWidth = 3;
                 ctx.beginPath();
-                ctx.arc(0, 0, 12 + Math.sin(gameState.runtime.time * 3) * 2, 0, Math.PI * 2);
+                ctx.arc(0, 0, 12 + Math.sin(time * 3) * 2, 0, Math.PI * 2);
                 ctx.stroke();
                 ctx.beginPath();
                 ctx.arc(0, 0, trap.radius * 0.45, 0, Math.PI * 2);
@@ -877,9 +939,11 @@ class TrapRenderer {
             ctx.fillStyle = trap.color;
             ctx.strokeText(trap.name, trap.x, trap.y - trap.radius - 16);
             ctx.fillText(trap.name, trap.x, trap.y - trap.radius - 16);
-            ctx.font = '10px sans-serif';
-            ctx.strokeText(trap.hint, trap.x, trap.y - trap.radius - 3);
-            ctx.fillText(trap.hint, trap.x, trap.y - trap.radius - 3);
+            if (trap.hint) {
+                ctx.font = '10px sans-serif';
+                ctx.strokeText(trap.hint, trap.x, trap.y - trap.radius - 3);
+                ctx.fillText(trap.hint, trap.x, trap.y - trap.radius - 3);
+            }
         }
 
         ctx.restore();
@@ -930,6 +994,23 @@ class UIRenderer {
             ctx.fill();
         });
 
+        const storyId = window.G && window.G.story ? window.G.story.node : null;
+        const storyLocation = storyId && window.STORY_LOCATIONS ? window.STORY_LOCATIONS[storyId] : null;
+        if (storyLocation) {
+            const pulse = 0.5 + Math.sin((gameState.runtime.world.time || 0) * 3) * 0.5;
+            const sx = mmX + storyLocation.x * scaleX;
+            const sy = mmY + storyLocation.y * scaleY;
+            ctx.fillStyle = '#ffd76a';
+            ctx.beginPath();
+            ctx.arc(sx, sy, 4 + pulse * 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255,215,100,0.8)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(sx, sy, 8 + pulse * 4, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
         const p = gameState.runtime.world.player;
         if (p) {
             ctx.fillStyle = '#4ecdc4';
@@ -956,6 +1037,148 @@ class UIRenderer {
  * 秘境大世界渲染器 - 支持迷雾/视野系统
  */
 class DungeonWorldRenderer {
+    static _themePalette(theme) {
+        const palettes = {
+            forest: {
+                screen: '#0f1712',
+                ground: ['#24382b', '#314a36', '#1a2a21'],
+                path: 'rgba(120, 104, 72, 0.52)', pathEdge: 'rgba(38, 34, 24, 0.3)',
+                patch: 'rgba(143, 191, 106, 0.1)', patch2: 'rgba(12, 24, 16, 0.2)'
+            },
+            bamboo: {
+                screen: '#101a13',
+                ground: ['#22362a', '#334c38', '#16251c'],
+                path: 'rgba(126, 145, 88, 0.46)', pathEdge: 'rgba(26, 34, 22, 0.28)',
+                patch: 'rgba(163, 196, 112, 0.1)', patch2: 'rgba(12, 22, 14, 0.2)'
+            },
+            ruins: {
+                screen: '#141419',
+                ground: ['#2c2b33', '#3a3740', '#201f27'],
+                path: 'rgba(132, 122, 101, 0.5)', pathEdge: 'rgba(30, 29, 32, 0.32)',
+                patch: 'rgba(178, 166, 143, 0.08)', patch2: 'rgba(16, 15, 19, 0.2)'
+            },
+            bones: {
+                screen: '#171510',
+                ground: ['#38332c', '#484239', '#24211c'],
+                path: 'rgba(150, 135, 108, 0.48)', pathEdge: 'rgba(32, 29, 24, 0.3)',
+                patch: 'rgba(210, 194, 158, 0.08)', patch2: 'rgba(20, 18, 15, 0.22)'
+            },
+            mine: {
+                screen: '#0e1514',
+                ground: ['#25302e', '#34423e', '#171f1e'],
+                path: 'rgba(112, 121, 108, 0.5)', pathEdge: 'rgba(22, 28, 26, 0.3)',
+                patch: 'rgba(120, 200, 178, 0.06)', patch2: 'rgba(12, 18, 17, 0.22)'
+            },
+            lava: {
+                screen: '#1a0d0a',
+                ground: ['#2a1714', '#3c2019', '#180d0c'],
+                path: 'rgba(124, 74, 52, 0.56)', pathEdge: 'rgba(40, 18, 12, 0.36)',
+                patch: 'rgba(255, 120, 60, 0.07)', patch2: 'rgba(18, 8, 6, 0.24)'
+            },
+            temple: {
+                screen: '#161510',
+                ground: ['#333028', '#443f32', '#201e18'],
+                path: 'rgba(154, 132, 92, 0.5)', pathEdge: 'rgba(34, 30, 22, 0.3)',
+                patch: 'rgba(216, 192, 140, 0.08)', patch2: 'rgba(18, 16, 12, 0.22)'
+            },
+            ice: {
+                screen: '#0d171c',
+                ground: ['#1f3038', '#2c4650', '#152229'],
+                path: 'rgba(140, 190, 205, 0.46)', pathEdge: 'rgba(24, 44, 52, 0.3)',
+                patch: 'rgba(200, 240, 255, 0.09)', patch2: 'rgba(12, 24, 30, 0.2)'
+            },
+            altar: {
+                screen: '#150f1c',
+                ground: ['#2b2136', '#3c2d4a', '#1a1324'],
+                path: 'rgba(140, 100, 160, 0.48)', pathEdge: 'rgba(32, 20, 40, 0.32)',
+                patch: 'rgba(200, 120, 255, 0.07)', patch2: 'rgba(16, 10, 22, 0.24)'
+            }
+        };
+        return palettes[theme] || palettes.ruins;
+    }
+
+    static _drawGround(ctx, world, dungeon, palette) {
+        const W = world.width;
+        const H = world.height;
+        const ground = ctx.createLinearGradient(0, 0, W * 0.8, H);
+        ground.addColorStop(0, palette.ground[0]);
+        ground.addColorStop(0.52, palette.ground[1]);
+        ground.addColorStop(1, palette.ground[2]);
+        ctx.fillStyle = ground;
+        ctx.fillRect(0, 0, W, H);
+
+        this._drawGroundPatches(ctx, world, palette);
+        this._drawGroundGrit(ctx, world, palette);
+        this._drawGroundPath(ctx, world, palette);
+
+        if (dungeon && dungeon.colorTint) {
+            ctx.fillStyle = dungeon.colorTint;
+            ctx.fillRect(0, 0, W, H);
+        }
+    }
+
+    static _drawGroundGrit(ctx, world, palette) {
+        const rand = n => {
+            const value = Math.sin(n * 91.7 + 17.3) * 24634.6345;
+            return value - Math.floor(value);
+        };
+        for (let i = 0; i < 320; i++) {
+            const x = rand(i * 2 + 1) * world.width;
+            const y = rand(i * 2 + 2) * world.height;
+            ctx.fillStyle = i % 6 === 0 ? palette.patch : 'rgba(235, 225, 196, 0.06)';
+            const size = 1 + rand(i * 3 + 4) * 3;
+            ctx.fillRect(x, y, size, size);
+        }
+    }
+
+    static _drawGroundPatches(ctx, world, palette) {
+        const rand = n => {
+            const value = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+            return value - Math.floor(value);
+        };
+        const count = 130;
+        for (let i = 0; i < count; i++) {
+            const x = rand(i * 3 + 1) * world.width;
+            const y = rand(i * 3 + 2) * world.height;
+            const radius = 18 + rand(i * 3 + 3) * 68;
+            ctx.fillStyle = i % 4 === 0 ? palette.patch2 : palette.patch;
+            ctx.beginPath();
+            ctx.ellipse(x, y, radius, radius * (0.35 + rand(i * 3 + 4) * 0.32),
+                rand(i * 3 + 5) * Math.PI, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    static _drawGroundPath(ctx, world, palette) {
+        if (!world.entry || !world.exit) return;
+        const W = world.width;
+        const H = world.height;
+        const entry = world.entry;
+        const exit = world.exit;
+        const midX1 = W * 0.33;
+        const midY1 = H * 0.7;
+        const midX2 = W * 0.64;
+        const midY2 = H * 0.38;
+
+        const strokePath = (color, width, dash) => {
+            ctx.beginPath();
+            ctx.moveTo(entry.x, entry.y);
+            ctx.bezierCurveTo(midX1, midY1, midX2, midY2, exit.x, exit.y);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = width;
+            ctx.setLineDash(dash || []);
+            ctx.stroke();
+        };
+
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        strokePath(palette.pathEdge, 116);
+        strokePath(palette.path, 92);
+        strokePath('rgba(255, 240, 200, 0.12)', 2, [12, 22]);
+        ctx.restore();
+    }
+
     static render(ctx, gameState) {
         const combat = gameState.runtime;
         const world = combat.dungeonWorld;
@@ -974,11 +1197,26 @@ class DungeonWorldRenderer {
         const camY = MathUtils.clamp(p.y - H / 2, 0, world.height - H);
 
         // 背景
-        ctx.fillStyle = '#1a1a2e';
+        const dungeon = combat.dungeon || (window.DUNGEONS || []).find(d => d.id === combat.dungeonId) || window.DUNGEONS[0];
+        const theme = world.floorTheme || 'ruins';
+        const palette = this._themePalette(theme);
+        ctx.fillStyle = palette.screen;
         ctx.fillRect(0, 0, W, H);
 
         ctx.save();
         ctx.translate(-camX, -camY);
+
+        // 地面：主题渐变 + 斑驳地表 + 入口到出口的路径
+        this._drawGround(ctx, world, dungeon, palette);
+
+        // 玩家周围的暖光，避免秘境整体过暗
+        const light = ctx.createRadialGradient(p.x, p.y, 40, p.x, p.y, visionRange);
+        light.addColorStop(0, 'rgba(255, 232, 184, 0.1)');
+        light.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = light;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, visionRange, 0, Math.PI * 2);
+        ctx.fill();
 
         // 绘制地形装饰（仅在视野内）
         if (world.decor) {
@@ -1043,14 +1281,20 @@ class DungeonWorldRenderer {
         if (world.exit) {
             const inVision = this._inVision(world.exit.x, world.exit.y, p.x, p.y, visionRange);
             if (inVision) {
-                this._drawExit(ctx, world.exit, time);
+                this._drawExit(ctx, world.exit, time, !!combat.floorExitUnlocked);
             }
         }
+
+        // 伤害/治疗跳字、斩击、爆炸、元素特效（秘境世界坐标）
+        window.EffectRenderer.render(ctx, gameState);
 
         ctx.restore();
 
         // 绘制迷雾遮罩（在相机变换外绘制，覆盖整个屏幕）
         this._drawFogOfWar(ctx, gameState, camX, camY, W, H);
+
+        // 环境粒子：树叶 / 火星 / 雪 / 幽魂
+        this._drawAmbient(ctx, world, time, W, H);
 
         // 绘制小地图
         this._drawMiniMap(ctx, gameState, camX, camY, W, H);
@@ -1063,16 +1307,17 @@ class DungeonWorldRenderer {
     }
 
     static _drawDecor(ctx, d, time) {
+        const color = typeof d.color === 'string' ? d.color : (d.kind === 'tree' ? '#3f5d45' : '#555a66');
         ctx.save();
         ctx.translate(d.x, d.y);
         ctx.rotate(d.turn || 0);
-        ctx.fillStyle = d.color || '#555';
+        ctx.fillStyle = color;
 
         if (d.kind === 'tree') {
             ctx.beginPath();
             ctx.ellipse(0, 0, d.size * 0.8, d.size * 0.5, 0, 0, Math.PI * 2);
             ctx.fill();
-            ctx.fillStyle = this._lighten(d.color, 20);
+            ctx.fillStyle = this._lighten(color, 20);
             ctx.beginPath();
             ctx.ellipse(0, -d.size * 0.2, d.size * 0.5, d.size * 0.3, 0, 0, Math.PI * 2);
             ctx.fill();
@@ -1159,12 +1404,13 @@ class DungeonWorldRenderer {
         ctx.restore();
     }
 
-    static _drawExit(ctx, exit, time) {
+    static _drawExit(ctx, exit, time, unlocked = true) {
         const pulse = 0.5 + Math.sin(time * 4) * 0.5;
+        const rgb = unlocked ? '78, 205, 196' : '220, 75, 90';
         ctx.save();
         ctx.translate(exit.x, exit.y);
-        // 传送门效果
-        ctx.strokeStyle = `rgba(78, 205, 196, ${0.5 + pulse * 0.5})`;
+        // 传送门效果；未清怪时是红色封印
+        ctx.strokeStyle = 'rgba(' + rgb + ', ' + (0.5 + pulse * 0.5) + ')';
         ctx.lineWidth = 3;
         for (let i = 0; i < 3; i++) {
             const r = 30 + i * 15 + pulse * 10;
@@ -1173,10 +1419,58 @@ class DungeonWorldRenderer {
             ctx.stroke();
         }
         // 中心光柱
-        ctx.fillStyle = `rgba(78, 205, 196, ${0.6 + pulse * 0.4})`;
+        ctx.fillStyle = 'rgba(' + rgb + ', ' + (0.6 + pulse * 0.4) + ')';
         ctx.beginPath();
         ctx.arc(0, 0, 20 + pulse * 10, 0, Math.PI * 2);
         ctx.fill();
+        if (!unlocked) {
+            ctx.strokeStyle = 'rgba(255, 150, 150, 0.9)';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(-18, -18);
+            ctx.lineTo(18, 18);
+            ctx.moveTo(18, -18);
+            ctx.lineTo(-18, 18);
+            ctx.stroke();
+            ctx.fillStyle = '#ffb0b0';
+            ctx.font = 'bold 12px "Microsoft YaHei", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('封印', 0, 58);
+        }
+        ctx.restore();
+    }
+
+    static _drawAmbient(ctx, world, time, W, H) {
+        const kind = world.ambient || 'leaves';
+        const count = kind === 'snow' ? 70 : kind === 'embers' ? 55 : 45;
+        ctx.save();
+        for (let i = 0; i < count; i++) {
+            const speed = 12 + (i * 37 % 23);
+            const drift = kind === 'embers' ? -0.45 : 0.32;
+            const x = ((i * 97 + time * speed * 0.35) % W + W) % W;
+            const y = ((i * 53 + time * speed * drift) % H + H) % H;
+            if (kind === 'embers') {
+                ctx.fillStyle = 'rgba(255, 145, 72, 0.5)';
+                ctx.beginPath();
+                ctx.arc(x, y, 1 + (i % 3), 0, Math.PI * 2);
+                ctx.fill();
+            } else if (kind === 'snow') {
+                ctx.fillStyle = 'rgba(222, 245, 255, 0.55)';
+                ctx.beginPath();
+                ctx.arc(x, y, 1.5 + (i % 3), 0, Math.PI * 2);
+                ctx.fill();
+            } else if (kind === 'wisps') {
+                ctx.fillStyle = 'rgba(182, 145, 255, 0.34)';
+                ctx.beginPath();
+                ctx.arc(x, y, 2 + (i % 3), 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                ctx.fillStyle = 'rgba(166, 203, 112, 0.36)';
+                ctx.beginPath();
+                ctx.ellipse(x, y, 3 + (i % 3), 1.5 + (i % 2), time + i, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
         ctx.restore();
     }
 
@@ -1187,8 +1481,6 @@ class DungeonWorldRenderer {
         const combat = gameState.runtime;
         const p = combat.player;
         const visionRange = combat.playerVision || 280;
-        const explored = combat.explored || new Set();
-        const gridSize = 16;
 
         // 创建离屏canvas用于绘制迷雾
         const fogCanvas = document.createElement('canvas');
@@ -1196,8 +1488,8 @@ class DungeonWorldRenderer {
         fogCanvas.height = H;
         const fogCtx = fogCanvas.getContext('2d');
 
-        // 基础迷雾层
-        fogCtx.fillStyle = 'rgba(10, 10, 20, 0.85)';
+        // 基础迷雾层（半透明，保留地图背景而不是整片死黑）
+        fogCtx.fillStyle = 'rgba(8, 10, 18, 0.55)';
         fogCtx.fillRect(0, 0, W, H);
 
         // 擦除视野范围内的迷雾
@@ -1207,31 +1499,14 @@ class DungeonWorldRenderer {
         // 创建径向渐变用于柔和边缘
         const gradient = fogCtx.createRadialGradient(vx, vy, 0, vx, vy, visionRange);
         gradient.addColorStop(0, 'rgba(0,0,0,0)');
-        gradient.addColorStop(0.7, 'rgba(10,10,20,0.3)');
-        gradient.addColorStop(1, 'rgba(10,10,20,0.85)');
+        gradient.addColorStop(0.65, 'rgba(8,10,18,0.16)');
+        gradient.addColorStop(1, 'rgba(8,10,18,0.55)');
 
         fogCtx.globalCompositeOperation = 'destination-out';
         fogCtx.fillStyle = gradient;
         fogCtx.fillRect(0, 0, W, H);
 
-        // 恢复已探索但不在当前视野内的区域（半透明迷雾）
-        fogCtx.globalCompositeOperation = 'source-over';
-        fogCtx.fillStyle = 'rgba(10, 10, 20, 0.5)';
-
-        for (const key of explored) {
-            const [gx, gy] = key.split(',').map(Number);
-            const wx = gx * gridSize - camX;
-            const wy = gy * gridSize - camY;
-            const dx = wx - vx;
-            const dy = wy - vy;
-            if (dx * dx + dy * dy > visionRange * visionRange) {
-                // 在屏幕范围内才绘制
-                if (wx > -gridSize && wx < W + gridSize && wy > -gridSize && wy < H + gridSize) {
-                    fogCtx.fillRect(wx, wy, gridSize, gridSize);
-                }
-            }
-        }
-
+        // 不再逐格绘制 16px 的已探索方块，避免地图上出现一片黑色马赛克
         ctx.drawImage(fogCanvas, 0, 0);
     }
 
@@ -1320,9 +1595,11 @@ class DungeonWorldRenderer {
     }
 
     static _lighten(color, amount) {
+        if (typeof color !== 'string') return '#888888';
         const usePound = color[0] === '#';
         const col = usePound ? color.slice(1) : color;
         const num = parseInt(col, 16);
+        if (!Number.isFinite(num)) return '#888888';
         let r = (num >> 16) + amount;
         let g = (num >> 8 & 0x00FF) + amount;
         let b = (num & 0x0000FF) + amount;

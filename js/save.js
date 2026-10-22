@@ -57,6 +57,9 @@ function getSaveData() {
         npcRelations: G.npcRelations || {},
         npcChoices: G.npcChoices || {},
         npcRewardClaims: G.npcRewardClaims || {},
+        inventory: G.inventory || {},
+        spiritStones: G.spiritStones || 0,
+        sect: G.sect || { rank: 0, contribution: 0, lastSalary: '' },
         achievements: G.achievements,
         saveTs: Date.now()
     });
@@ -87,6 +90,13 @@ function applySaveData(raw) {
     G.npcRelations = d.npcRelations && typeof d.npcRelations === 'object' ? d.npcRelations : {};
     G.npcChoices = d.npcChoices && typeof d.npcChoices === 'object' ? d.npcChoices : {};
     G.npcRewardClaims = d.npcRewardClaims && typeof d.npcRewardClaims === 'object' ? d.npcRewardClaims : {};
+    const hadInventory = d.inventory && typeof d.inventory === 'object';
+    G.inventory = hadInventory ? d.inventory : { pill_hp: 1 };
+    G.spiritStones = Number.isFinite(d.spiritStones) ? d.spiritStones : (hadInventory ? 0 : 30);
+    G.sect = d.sect && typeof d.sect === 'object'
+        ? Object.assign({ rank: 0, contribution: 0, lastSalary: '' }, d.sect)
+        : { rank: 0, contribution: 0, lastSalary: '' };
+    if (!hadInventory) toast('🎒 旧存档补给：回春丹 ×1 · 灵石 ×30', 'gold');
     G.achievements = d.achievements || [];
     hideOverlay('loginOverlay');
     hideOverlay('createOverlay');

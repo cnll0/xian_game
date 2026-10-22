@@ -5,6 +5,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>修仙传说2D·第一章：灵气觉醒</title>
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
     <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -70,6 +71,15 @@
                     <div id="joyBase" class="joy-base"><div id="joyKnob" class="joy-knob"></div></div>
                 </div>
                 <div id="worldHint" class="world-hint">WASD / 方向键 / 摇杆移动 · 靠近人物、遗迹或擂台会触发故事</div>
+                <div id="questTracker" class="quest-tracker" aria-live="polite">
+                    <div class="quest-kicker">🎯 当前剧情</div>
+                    <div id="questTitle" class="quest-title"></div>
+                    <div class="quest-meta">
+                        <span id="questArrow" class="quest-arrow">▲</span>
+                        <span id="questLocation"></span>
+                        <span id="questDistance"></span>
+                    </div>
+                </div>
                 <button id="interactBtn" class="interact-btn">📜 触发剧情 <small>E</small></button>
                 <button id="atkBtn" class="atk-btn">⚔️</button>
             </div>
@@ -238,6 +248,8 @@ window.__stepRaf = (ts) => {
     <!-- 游戏数据与逻辑 -->
     <script src="js/data.js"></script>
     <script src="js/save.js"></script>
+    <script src="js/inventory.js"></script>
+    <script src="js/panels.js"></script>
     <script src="js/story.js"></script>
     <script src="js/main.js"></script>
 <pre id="auditResult">RUNNING</pre>
@@ -290,6 +302,64 @@ window.addEventListener('DOMContentLoaded', () => {
                 __record('world.time', +inst.gameState.runtime.world.time.toFixed(2));
                 __record('overlayAfterMove', __activeOverlay());
                 while (__activeOverlay() && guard++ < 8) { hideOverlay(__activeOverlay()); __step(3); }
+                // 大地图剧情触发 + 剧情点附近有 NPC 时的优先级
+                try {
+                    const worldState = inst.gameState.runtime.world;
+                    // 移动到起点，确保直接站在 s0 剧情点上
+                    worldState.player.x = window.STORY_LOCATIONS.s0.x;
+                    worldState.player.y = window.STORY_LOCATIONS.s0.y;
+                    inst.worldSystem._checkInteractions();
+                    const startStory = worldState.nearbyStory;
+                    __record('story.start', {
+                        node: G.story.node,
+                        nearby: startStory && startStory.id,
+                        title: startStory && startStory.title
+                    });
+                    const opened = (() => {
+                        // 快速点按 E：keydown + keyup 发生在同一帧内，验证边沿缓冲
+                        window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', key: 'e', bubbles: true }));
+                        window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE', key: 'e', bubbles: true }));
+                        __step(2);
+                        return __activeOverlay() === 'storyOverlay';
+                    })();
+                    __record('story.open', {
+                        opened,
+                        overlay: __activeOverlay(),
+                        title: document.getElementById('storyTitle').textContent
+                    });
+                    const storyOption = document.querySelector('#storyOptions .option-btn');
+                    if (storyOption) storyOption.click();
+                    __step(2);
+                    __record('story.next', { node: G.story.node, overlay: __activeOverlay() });
+
+                    const s1 = window.STORY_LOCATIONS.s1;
+                    worldState.player.x = s1.x;
+                    worldState.player.y = s1.y;
+                    inst.worldSystem._checkInteractions();
+                    __record('story.s1near', {
+                        story: worldState.nearbyStory && worldState.nearbyStory.id,
+                        npc: worldState.nearbyNpc && worldState.nearbyNpc.id
+                    });
+                    const openedS1 = (() => {
+                        window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', key: 'e', bubbles: true }));
+                        window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyE', key: 'e', bubbles: true }));
+                        __step(2);
+                        return __activeOverlay() === 'storyOverlay';
+                    })();
+                    __record('story.s1open', {
+                        opened: openedS1,
+                        overlay: __activeOverlay(),
+                        title: document.getElementById('storyTitle').textContent
+                    });
+
+                    // 恢复起点，继续后面的秘境测试
+                    hideOverlay('storyOverlay');
+                    hideOverlay('npcOverlay');
+                    G.story.node = 's0';
+                    worldState.player.x = window.STORY_LOCATIONS.s0.x;
+                    worldState.player.y = window.STORY_LOCATIONS.s0.y;
+                    inst.worldSystem._checkInteractions();
+                } catch (e) { __record('story.error', e.message); }
                 if (location.search === '?visual=1') {
                     __record('visual', 'world-ready');
                     __record('errors', window.__auditErrors);
@@ -352,13 +422,49 @@ window.addEventListener('DOMContentLoaded', () => {
                     __step(3);
                     window.dispatchEvent(new MouseEvent('mouseup'));
                     __record('attack.drop', hp0 - m.hp);
+                    __record('combat.fx', {
+                        texts: run.texts.map(t => t.text),
+                        effects: run.effects.map(e => e.type)
+                    });
                 }
                 __record('hud.hpText', document.getElementById('hudHpText') ? document.getElementById('hudHpText').textContent : 'MISSING');
                 try {
-                    run.monsters.forEach(m => { m.hp = 0; });
-                    inst.combatSystem._checkWinCondition();
-                    await new Promise(r => setTimeout(r, 900));
-                    __step(10);
+                    if (run.dungeonWorldMode && run.dungeonWorld && run.dungeonWorld.exit) {
+                        // 秘境世界模式：先尝试直接到出口（应被封印拦住），再清怪解锁
+                        __record('gate.before', {
+                            floor: run.floor,
+                            unlocked: !!run.floorExitUnlocked,
+                            kills: run.floorKills,
+                            target: run.floorKillTarget,
+                            total: run.floorMonsterTotal
+                        });
+                        run.player.x = run.dungeonWorld.exit.x;
+                        run.player.y = run.dungeonWorld.exit.y;
+                        __step(2);
+                        __record('gate.locked', {
+                            floor: run.floor,
+                            unlocked: !!run.floorExitUnlocked
+                        });
+                        const targetKills = run.floorKillTarget || 0;
+                        run.monsters.slice(0, targetKills).forEach(m => inst.combatSystem.killMonster(m));
+                        __step(2);
+                        __record('gate.unlocked', {
+                            unlocked: !!run.floorExitUnlocked,
+                            kills: run.floorKills,
+                            target: targetKills
+                        });
+                        run.player.x = run.dungeonWorld.exit.x;
+                        run.player.y = run.dungeonWorld.exit.y;
+                        __step(3);
+                        await new Promise(r => setTimeout(r, 1500));
+                        __step(10);
+                    } else {
+                        // 竞技场模式：清空怪物触发通关
+                        run.monsters.forEach(m => { m.hp = 0; });
+                        inst.combatSystem._checkWinCondition();
+                        await new Promise(r => setTimeout(r, 900));
+                        __step(10);
+                    }
                     __record('floorClear', { floor: run.floor, state: run.state, monsters: run.monsters.length, overlay: __activeOverlay() });
                     const playerCards = document.querySelectorAll('#playerCardChoices .choice-card');
                     const curseCards = document.querySelectorAll('#curseCardChoices .choice-card');
@@ -384,13 +490,55 @@ window.addEventListener('DOMContentLoaded', () => {
                             monsterRanks: run.cards.monster
                         });
                     }
+                    // 验证秘境 NPC 对话（最初的立绘报错路径）
+                    try {
+                        const floorNpc = run.floorNpc;
+                        __record('npc.present', floorNpc && {
+                            id: floorNpc.npc && floorNpc.npc.id,
+                            name: floorNpc.npc && floorNpc.npc.name
+                        });
+                        if (floorNpc && floorNpc.npc) {
+                            run.player.x = floorNpc.x;
+                            run.player.y = floorNpc.y;
+                            inst.combatSystem._updateFloorNpc();
+                            const opened = inst.combatSystem.tryInteractDungeonWorld();
+                            __step(2);
+                            __record('npc.dialog', {
+                                opened,
+                                overlay: __activeOverlay(),
+                                name: document.getElementById('npcName').textContent
+                            });
+                            const npcOption = document.querySelector('#npcOptions .option-btn');
+                            if (npcOption) {
+                                npcOption.click();
+                                __step(2);
+                                __record('npc.choice', {
+                                    overlay: __activeOverlay(),
+                                    dialogue: document.getElementById('npcDialogue').textContent,
+                                    floorNpc: !!run.floorNpc
+                                });
+                            }
+                            closeNpcDialog();
+                            __step(2);
+                            __record('npc.closed', { overlay: __activeOverlay(), state: run.state });
+                        }
+                    } catch (e) { __record('npc.error', e.message); }
                 } catch (e) { __record('floorClear.error', e.message); }
                 try { showCodex(); __record('codex', 'opened'); }
                 catch (e) { __record('codex.error', e.message); }
                 try { showAchievements(); __record('achievements', 'opened'); }
                 catch (e) { __record('achievements.error', e.message); }
                 saveGame(true);
-                __record('save.exists', !!localStorage.getItem('xian2d_save_' + G.username));
+                const savedRaw = localStorage.getItem('xian2d_save_' + G.username);
+                __record('save.exists', !!savedRaw);
+                try {
+                    const saved = savedRaw ? JSON.parse(savedRaw) : {};
+                    __record('save.fields', {
+                        stones: saved.spiritStones,
+                        inventory: saved.inventory,
+                        sect: saved.sect
+                    });
+                } catch (e) { __record('save.fields.error', e.message); }
             } catch (e) {
                 __record('FATAL', e.message + ' | ' + (e.stack || '').split('\n').slice(0, 5).join(' <> '));
             }

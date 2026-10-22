@@ -35,12 +35,16 @@ class InputManager {
         this.attackPressed = false;
         /** @type {boolean} */
         this.interactPressed = false;
+        // 边沿缓冲：快速点按可能在同一帧内经历 keydown + keyup，
+        // 只记录 pressed 会丢掉这次输入；queued 保证下一帧一定能消费到。
+        this.attackQueued = false;
+        this.interactQueued = false;
 
         this._bindEvents();
     }
 
     _bindEvents() {
-        const isTyping = (target) => target && (
+        const isTyping = (target) => target && target.offsetParent !== null && (
             target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
 
         window.addEventListener('keydown', (e) => {
@@ -51,9 +55,11 @@ class InputManager {
             }
             if ((e.code === 'KeyJ' || e.code === 'Space' || e.code === 'KeyZ')) {
                 this.attackPressed = true;
+                this.attackQueued = true;
             }
             if (e.code === 'KeyE' || e.code === 'Enter') {
                 this.interactPressed = true;
+                this.interactQueued = true;
             }
         });
 
@@ -78,6 +84,7 @@ class InputManager {
             if (document.querySelector('.overlay.active')) return;
             this.mouse.down = true;
             this.attackPressed = true;
+            this.attackQueued = true;
         });
 
         window.addEventListener('mouseup', () => {
@@ -98,6 +105,7 @@ class InputManager {
         if (interactBtn) {
             interactBtn.addEventListener('click', () => {
                 this.interactPressed = true;
+                this.interactQueued = true;
             });
         }
 
@@ -157,6 +165,7 @@ class InputManager {
                 e.preventDefault();
                 if (document.querySelector('.overlay.active')) return;
                 this.attackPressed = true;
+                this.attackQueued = true;
             };
             atkBtn.addEventListener('touchstart', fire, { passive: false });
             atkBtn.addEventListener('mousedown', fire);
@@ -184,7 +193,8 @@ class InputManager {
      * @returns {boolean}
      */
     consumeAttack() {
-        const pressed = this.attackPressed;
+        const pressed = this.attackQueued || this.attackPressed;
+        this.attackQueued = false;
         this.attackPressed = false;
         return pressed;
     }
@@ -194,7 +204,8 @@ class InputManager {
      * @returns {boolean}
      */
     consumeInteract() {
-        const pressed = this.interactPressed;
+        const pressed = this.interactQueued || this.interactPressed;
+        this.interactQueued = false;
         this.interactPressed = false;
         return pressed;
     }

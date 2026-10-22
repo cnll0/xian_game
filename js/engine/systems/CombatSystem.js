@@ -195,6 +195,9 @@ class CombatSystem {
                 const world = await this.mapGeneratorWorker.generateDungeonWorld(
                     this.state.dungeon, floor, this.state.mapSeed
                 );
+                if (!world || !world.entry) {
+                    throw new Error('Worker 返回的秘境世界数据不完整');
+                }
 
                 this.state.dungeonWorld = world;
                 this.state.dungeonWorldMode = true;
@@ -229,7 +232,7 @@ class CombatSystem {
 
         // 设置玩家初始位置在入口
         const { W, H } = this.constants;
-        const entry = world.entry;
+        const entry = world.entry || { x: W / 2, y: H - 80 };
         this.state.player = {
             x: entry.x, y: entry.y,
             r: 16,
@@ -271,37 +274,59 @@ class CombatSystem {
         this.state.explored = new Set(); // 已探索区域
 
         // 怪物从生成的世界数据加载
-        this.state.monsters = world.creatures.map(c => ({
+        this.state.monsters = (world.creatures || []).map(c => ({
             ...c,
             facing: 0,
             atkCd: 0,
             stunCd: 0,
             controlEffect: null
         }));
+        this.state.floorMonsterTotal = this.state.monsters.length;
+        this.state.floorKillTarget = this.state.monsters.length
+            ? Math.ceil(this.state.monsters.length * 0.75)
+            : 0;
+        this.state.floorKills = 0;
+        this.state.floorHasBoss = this.state.monsters.some(m => m.boss);
+        this.state.floorBossKilled = false;
+        this.state.floorExitUnlocked = this.state.monsters.length === 0;
+        this.state.exitLockToastAt = 0;
 
         // 陷阱
-        this.state.traps = world.traps;
+        this.state.traps = world.traps || [];
 
         // 地形装饰
-        this.state.scenery = world.decor;
-        this.state.landmarks = world.landmarks;
+        this.state.scenery = world.decor || [];
+        this.state.landmarks = world.landmarks || [];
 
         // NPC
+        // Worker 无法访问主线程的 DUNGEON_NPC_EVENTS/NPCS 数据，返回的 npcs 为空；
+        // 在这里统一补全，避免走 Worker 时秘境里完全没有可交互 NPC。
+        if (!this.state.skirmish && (!world.npcs || world.npcs.length === 0)) {
+            world.npcs = this.mapGenerator.generateDungeonWorldNPCs(
+                dungeon, floor, this.state.mapSeed, world.width, world.height
+            ) || [];
+        }
+
         this.state.floorNpc = null;
         if (world.npcs && world.npcs.length > 0) {
             const npcData = world.npcs[0];
-            this.state.floorNpc = {
-                x: npcData.x,
-                y: npcData.y,
-                phase: npcData.phase,
-                used: false,
-                npc: Object.assign({}, npcData.npc, {
-                    dungeonEncounter: true,
-                    title: npcData.title,
-                    greeting: npcData.line,
-                    choices: npcData.choices
-                })
-            };
+            // 兼容两种数据形态：{ npc: {...} } 或只有 { npcId, title, line, choices }。
+            const npcBase = npcData.npc || (npcData.npcId && (window.NPCS || [])
+                .find(item => item.id === npcData.npcId));
+            if (npcBase) {
+                this.state.floorNpc = {
+                    x: typeof npcData.x === 'number' ? npcData.x : W / 2 + 170,
+                    y: typeof npcData.y === 'number' ? npcData.y : H * 0.39,
+                    phase: typeof npcData.phase === 'number' ? npcData.phase : Math.random() * Math.PI * 2,
+                    used: false,
+                    npc: Object.assign({}, npcBase, {
+                        dungeonEncounter: true,
+                        title: npcData.title,
+                        greeting: npcData.line,
+                        choices: npcData.choices
+                    })
+                };
+            }
         }
 
         // 宝箱（放在出口附近和随机位置）
@@ -543,6 +568,12 @@ class CombatSystem {
                 window.G.flags.clears = (window.G.flags.clears || 0) + 1;
                 if (this.state.noDeathRun) window.G.flags.noDeathClear = (window.G.flags.noDeathClear || 0) + 1;
                 window.gainCultivation(150 + this.state.floor * 15);
+                if (typeof window.addSectContribution === 'function') {
+                    window.addSectContribution((window.SECT && window.SECT.contributionPerClear) || 20);
+                }
+                if (typeof window.addSpiritStones === 'function') {
+                    window.addSpiritStones(40 + this.state.floor * 8);
+                }
                 window.toast('👑 秘境通关！奖励修为+' + (150 + this.state.floor * 15), 'gold');
                 window.G.hp = this.state.player ? this.state.player.hp : window.G.maxHp;
                 window.checkAchievements();
@@ -635,6 +666,21 @@ class CombatSystem {
         }
     }
 
+    _worldW() {
+        const world = this.state.dungeonWorldMode && this.state.dungeonWorld;
+        return world ? world.width : this.constants.W;
+    }
+
+    _worldH() {
+        const world = this.state.dungeonWorldMode && this.state.dungeonWorld;
+        return world ? world.height : this.constants.H;
+    }
+
+    _minX(radius) { return this.constants.PAD + radius; }
+    _maxX(radius) { return this._worldW() - this.constants.PAD - radius; }
+    _minY(radius) { return this.constants.PAD + radius; }
+    _maxY(radius) { return this._worldH() - this.constants.PAD - radius; }
+
     _updatePlayerMovement(dt) {
         const p = this.state.player;
         const input = window.gameInput || { movement: { x: 0, y: 0, length: 0 } };
@@ -646,11 +692,11 @@ class CombatSystem {
             Math.max(0.8, p.mods.speed ? window.G.speed + p.mods.speed : window.G.speed) * 60;
 
         if (p.slideTime > 0) {
-            p.x = MathUtils.clamp(p.x + p.iceDriftX * speed * dt, this.constants.PAD + p.r, this.constants.W - this.constants.PAD - p.r);
-            p.y = MathUtils.clamp(p.y + p.iceDriftY * speed * dt, this.constants.PAD + p.r, this.constants.H - this.constants.PAD - p.r);
+            p.x = MathUtils.clamp(p.x + p.iceDriftX * speed * dt, this._minX(p.r), this._maxX(p.r));
+            p.y = MathUtils.clamp(p.y + p.iceDriftY * speed * dt, this._minY(p.r), this._maxY(p.r));
         } else if (mv.length > 0.05) {
-            p.x = MathUtils.clamp(p.x + mv.x * speed * dt, this.constants.PAD + p.r, this.constants.W - this.constants.PAD - p.r);
-            p.y = MathUtils.clamp(p.y + mv.y * speed * dt, this.constants.PAD + p.r, this.constants.H - this.constants.PAD - p.r);
+            p.x = MathUtils.clamp(p.x + mv.x * speed * dt, this._minX(p.r), this._maxX(p.r));
+            p.y = MathUtils.clamp(p.y + mv.y * speed * dt, this._minY(p.r), this._maxY(p.r));
             p.facing = Math.atan2(mv.y, mv.x);
             p.walkT += dt;
         }
@@ -658,8 +704,8 @@ class CombatSystem {
         if (p.dashCd > 0) p.dashCd = Math.max(0, p.dashCd - dt);
         if (p.dashTime > 0) {
             p.dashTime -= dt;
-            p.x = MathUtils.clamp(p.x + p.dashVx * dt, this.constants.PAD + p.r, this.constants.W - this.constants.PAD - p.r);
-            p.y = MathUtils.clamp(p.y + p.dashVy * dt, this.constants.PAD + p.r, this.constants.H - this.constants.PAD - p.r);
+            p.x = MathUtils.clamp(p.x + p.dashVx * dt, this._minX(p.r), this._maxX(p.r));
+            p.y = MathUtils.clamp(p.y + p.dashVy * dt, this._minY(p.r), this._maxY(p.r));
             this.state.effects.push({ type: 'afterimage', x: p.x, y: p.y, t: 0, life: 0.25 });
         }
         if (p.mods.dashStrike && p.dashCd <= 0 && p.dashTime <= 0) {
@@ -701,7 +747,7 @@ class CombatSystem {
         const p = this.state.player;
         const atkSpeed = p.attackSlowTime > 0 ? 0.5 : 1;
         p.atkCd = (0.6 / atkSpeed) * (p.mods.dashStrike ? 0.8 : 1);
-        p.swinging = 0.18;
+        p.swinging = 0.24;
         p.facing = Math.atan2(window.gameInput.mouse.y - p.y, window.gameInput.mouse.x - p.x);
 
         const range = (window.G.range + (p.mods.range || 0)) * (p.mods.dashStrike ? 1.5 : 1);
@@ -735,7 +781,7 @@ class CombatSystem {
         const color = mods.evoBlade ? '#ffd86b'
             : mods.elemIce ? '#8beaff'
                 : mods.elemFire ? '#ff8a4c' : '#7df9ff';
-        this.state.effects.push({ type: 'slash', x, y, a: angle, r: range, color, t: 0, life: 0.18 });
+        this.state.effects.push({ type: 'slash', x, y, a: angle, r: range, color, t: 0, life: 0.24 });
         this.state.bullets.push(slash);
     }
 
@@ -783,8 +829,8 @@ class CombatSystem {
 
             if (m.teleport > 0 && m.teleportCd <= 0 && dist > 110) {
                 const angle = Math.random() * Math.PI * 2;
-                m.x = MathUtils.clamp(p.x + Math.cos(angle) * 160, this.constants.PAD + m.r, this.constants.W - this.constants.PAD - m.r);
-                m.y = MathUtils.clamp(p.y + Math.sin(angle) * 160, this.constants.PAD + m.r, this.constants.H - this.constants.PAD - m.r);
+                m.x = MathUtils.clamp(p.x + Math.cos(angle) * 160, this._minX(m.r), this._maxX(m.r));
+                m.y = MathUtils.clamp(p.y + Math.sin(angle) * 160, this._minY(m.r), this._maxY(m.r));
                 m.teleportCd = Math.max(2, m.teleport);
                 this.state.effects.push({ type: 'evolution', x: m.x, y: m.y, color: '#b388e8', t: 0, life: 0.5 });
             }
@@ -874,6 +920,19 @@ class CombatSystem {
     _monsterAttack(monster, player) {
         if (window.audioManager) window.audioManager.hurt();
         const dmg = monster.atk;
+        monster.facing = Math.atan2(player.y - monster.y, player.x - monster.x);
+        // 怪物也有朝向玩家的爪击/挥击贴图，不再只是扣血
+        this.state.effects.push({
+            type: 'slash',
+            x: monster.x,
+            y: monster.y,
+            a: monster.facing,
+            r: Math.max(28, monster.r * 2.1),
+            color: monster.tint || '#ff6b6b',
+            monster: true,
+            t: 0,
+            life: 0.22
+        });
         this.hurtPlayer(dmg);
         window.floatText(player.x, player.y - 24, '-' + dmg, '#ff6b6b');
         if (player.mods.thorns > 0) {
@@ -924,8 +983,8 @@ class CombatSystem {
                 b.y += (b.vy || 0) * dt;
                 b.life = (b.life || 3) - dt;
                 if (b.life <= 0 ||
-                    b.x < this.constants.PAD || b.x > this.constants.W - this.constants.PAD ||
-                    b.y < this.constants.PAD || b.y > this.constants.H - this.constants.PAD) {
+                    b.x < this.constants.PAD || b.x > this._maxX(0) ||
+                    b.y < this.constants.PAD || b.y > this._maxY(0)) {
                     this.state.bullets.splice(i, 1);
                     continue;
                 }
@@ -944,12 +1003,18 @@ class CombatSystem {
 
     _resolveBullet(bullet) {
         const rangeSq = bullet.range * bullet.range;
+        // 玩家挥剑是朝向前方的扇形判定，不是全圆；要和攻击贴图（slash/claw 的 8 方向张角）保持一致。
+        // 旧引擎用 ±1.1 rad（约 63°），这里沿用，避免打不到正面的怪或打中背后的怪。
+        const arcHalf = 1.1;
         for (const m of this.state.monsters) {
             if (m.hp <= 0) continue;
             const dx = m.x - bullet.x, dy = m.y - bullet.y;
-            if (dx * dx + dy * dy <= rangeSq + m.r * m.r) {
-                this.damageMonster(m, bullet);
+            if (dx * dx + dy * dy > rangeSq + m.r * m.r) continue;
+            if (bullet.angle !== undefined) {
+                const ang = Math.atan2(dy, dx);
+                if (Math.abs(MathUtils.angleDiff(ang, bullet.angle)) > arcHalf) continue;
             }
+            this.damageMonster(m, bullet);
         }
     }
 
@@ -989,8 +1054,8 @@ class CombatSystem {
         if (bullet.knockback > 0) {
             const fromX = monster.x, fromY = monster.y;
             const angle = Math.atan2(monster.y - bullet.y, monster.x - bullet.x);
-            monster.x = MathUtils.clamp(monster.x + Math.cos(angle) * bullet.knockback, this.constants.PAD + monster.r, this.constants.W - this.constants.PAD - monster.r);
-            monster.y = MathUtils.clamp(monster.y + Math.sin(angle) * bullet.knockback, this.constants.PAD + monster.r, this.constants.H - this.constants.PAD - monster.r);
+            monster.x = MathUtils.clamp(monster.x + Math.cos(angle) * bullet.knockback, this._minX(monster.r), this._maxX(monster.r));
+            monster.y = MathUtils.clamp(monster.y + Math.sin(angle) * bullet.knockback, this._minY(monster.r), this._maxY(monster.r));
             this.state.effects.push({ type: 'knockback', x: fromX, y: fromY, x2: monster.x, y2: monster.y, t: 0, life: 0.22 });
         }
         if (bullet.stunChance && Math.random() * 100 < bullet.stunChance) {
@@ -1043,8 +1108,8 @@ class CombatSystem {
                     const pull = Math.min(1, (1 - pdist / (trap.radius * 1.5)) * 1.6);
                     const pullDist = 105 * pull * dt;
                     const angle = Math.atan2(trap.y - p.y, trap.x - p.x);
-                    p.x = MathUtils.clamp(p.x + Math.cos(angle) * pullDist, this.constants.PAD + p.r, this.constants.W - this.constants.PAD - p.r);
-                    p.y = MathUtils.clamp(p.y + Math.sin(angle) * pullDist, this.constants.PAD + p.r, this.constants.H - this.constants.PAD - p.r);
+                    p.x = MathUtils.clamp(p.x + Math.cos(angle) * pullDist, this._minX(p.r), this._maxX(p.r));
+                    p.y = MathUtils.clamp(p.y + Math.sin(angle) * pullDist, this._minY(p.r), this._maxY(p.r));
                 }
             }
 
@@ -1093,8 +1158,8 @@ class CombatSystem {
                 }
                 if (trap.knockback) {
                     const angle = Math.atan2(p.y - trap.y, p.x - trap.x);
-                    p.x = MathUtils.clamp(p.x + Math.cos(angle) * trap.knockback, this.constants.PAD + p.r, this.constants.W - this.constants.PAD - p.r);
-                    p.y = MathUtils.clamp(p.y + Math.sin(angle) * trap.knockback, this.constants.PAD + p.r, this.constants.H - this.constants.PAD - p.r);
+                    p.x = MathUtils.clamp(p.x + Math.cos(angle) * trap.knockback, this._minX(p.r), this._maxX(p.r));
+                    p.y = MathUtils.clamp(p.y + Math.sin(angle) * trap.knockback, this._minY(p.r), this._maxY(p.r));
                 }
                 trap.playerNextHit = this.state.time + (trap.poison ? 1.05 : 1.4);
                 window.floatText(p.x, p.y - 24, '⚠ ' + trap.name + ' -' + dmg, trap.color);
@@ -1120,8 +1185,8 @@ class CombatSystem {
                 if (trap.shock) { m.stunCd = Math.max(m.stunCd || 0, trap.shock * 0.7); m.controlEffect = 'stun'; }
                 if (trap.knockback) {
                     const angle = Math.atan2(m.y - trap.y, m.x - trap.x);
-                    m.x = MathUtils.clamp(m.x + Math.cos(angle) * trap.knockback * 0.8, this.constants.PAD + m.r, this.constants.W - this.constants.PAD - m.r);
-                    m.y = MathUtils.clamp(m.y + Math.sin(angle) * trap.knockback * 0.8, this.constants.PAD + m.r, this.constants.H - this.constants.PAD - m.r);
+                    m.x = MathUtils.clamp(m.x + Math.cos(angle) * trap.knockback * 0.8, this._minX(m.r), this._maxX(m.r));
+                    m.y = MathUtils.clamp(m.y + Math.sin(angle) * trap.knockback * 0.8, this._minY(m.r), this._maxY(m.r));
                 }
                 const element = trap.type === 'ice' ? 'ice' : trap.type === 'fire' ? 'fire' :
                     trap.type === 'roots' ? 'roots' : trap.type === 'rune' ? 'seal' :
@@ -1180,6 +1245,22 @@ class CombatSystem {
         this.state.effects.push({ type: 'boom', x: chest.x, y: chest.y, color: '#ffd700', t: 0, life: 0.6 });
         const roll = Math.random();
         const p = this.state.player;
+        const stones = 8 + this.state.floor * 3;
+        if (typeof window.addSpiritStones === 'function') {
+            window.addSpiritStones(stones);
+            window.floatText(chest.x, chest.y - 34, '💎 灵石+' + stones, '#8ef2e7');
+        }
+        if (typeof window.addItem === 'function' && Math.random() < 0.55) {
+            const pool = ['herb_ling', 'ore_iron', 'meat_beast'];
+            if (this.state.dungeonId === 'ember') pool.push('crystal_fire');
+            if (this.state.dungeonId === 'frost') pool.push('crystal_ice');
+            const itemId = pool[Math.floor(Math.random() * pool.length)];
+            const def = window.getItemDef(itemId);
+            if (def) {
+                window.addItem(itemId, 1);
+                window.floatText(chest.x, chest.y - 18, (def.emoji || '🎁') + ' ' + def.name, '#ffe27a');
+            }
+        }
         if (roll < 0.3) {
             const heal = 40;
             p.hp = Math.min(p.maxHp, p.hp + heal);
@@ -1205,14 +1286,29 @@ class CombatSystem {
     _updateFloorNpc() {
         const floorNpc = this.state.floorNpc;
         const p = this.state.player;
-        if (!floorNpc || floorNpc.used || !p) return;
-        
+        const interactBtn = document.getElementById('interactBtn');
+        if (!floorNpc || floorNpc.used || !p) {
+            // NPC 已被使用或已消失时清理交互引用，避免按 E 再次触发已结束的遭遇
+            this.state.nearbyDungeonNpc = null;
+            if (interactBtn) interactBtn.classList.remove('visible');
+            return;
+        }
+
         const dist = Math.hypot(p.x - floorNpc.x, p.y - floorNpc.y);
         if (dist < 80) {
             // 记录可交互的NPC，供tryInteractDungeonWorld使用
             this.state.nearbyDungeonNpc = floorNpc;
         } else {
             this.state.nearbyDungeonNpc = null;
+        }
+
+        if (interactBtn) {
+            if (this.state.nearbyDungeonNpc) {
+                interactBtn.innerHTML = '💬 与 ' + (floorNpc.npc.name || '神秘人') + ' 交谈 <small>E</small>';
+                interactBtn.classList.add('visible');
+            } else {
+                interactBtn.classList.remove('visible');
+            }
         }
     }
 
@@ -1221,13 +1317,21 @@ class CombatSystem {
      */
     tryInteractDungeonWorld() {
         // 优先处理NPC交互
-        if (this.state.nearbyDungeonNpc && typeof window.onDungeonNpcNearby === 'function') {
-            const npc = this.state.nearbyDungeonNpc;
-            npc.used = true;
-            window.onDungeonNpcNearby(npc.npc);
-            return true;
+        const npc = this.state.nearbyDungeonNpc;
+        if (!npc || npc.used || npc !== this.state.floorNpc || !npc.npc ||
+            typeof window.onDungeonNpcNearby !== 'function') {
+            return false;
         }
-        return false;
+        npc.used = true;
+        try {
+            window.onDungeonNpcNearby(npc.npc);
+        } catch (err) {
+            // 对话失败时恢复可交互状态，避免 NPC 被永久消耗
+            npc.used = false;
+            console.error('秘境 NPC 对话失败:', err);
+            return false;
+        }
+        return true;
     }
 
     _checkCollisions() {
@@ -1240,8 +1344,8 @@ class CombatSystem {
                     this.hurtPlayer(m.atk);
                     const angle = Math.atan2(p.y - m.y, p.x - m.x);
                     const kb = 40;
-                    p.x = MathUtils.clamp(p.x + Math.cos(angle) * kb, this.constants.PAD + p.r, this.constants.W - this.constants.PAD - p.r);
-                    p.y = MathUtils.clamp(p.y + Math.sin(angle) * kb, this.constants.PAD + p.r, this.constants.H - this.constants.PAD - p.r);
+                    p.x = MathUtils.clamp(p.x + Math.cos(angle) * kb, this._minX(p.r), this._maxX(p.r));
+                    p.y = MathUtils.clamp(p.y + Math.sin(angle) * kb, this._minY(p.r), this._maxY(p.r));
                     p.invuln = 0.5;
                 }
             }
@@ -1308,6 +1412,12 @@ class CombatSystem {
         if (window.audioManager) window.audioManager.hit();
         window.G.flags.kills = (window.G.flags.kills || 0) + 1;
         window.checkAchievements();
+        if (this.state.dungeonWorldMode) {
+            this.state.floorKills = (this.state.floorKills || 0) + 1;
+            if (monster.boss) this.state.floorBossKilled = true;
+            this._checkDungeonExitUnlock();
+        }
+        this._dropLoot(monster);
 
         if (this.state.player.mods.curseSoulHarvest) {
             const heal = Math.max(1, Math.ceil(this.state.player.maxHp * this.state.player.mods.curseSoulHarvest));
@@ -1354,6 +1464,35 @@ class CombatSystem {
                     _dead: false
                 }));
             }
+        }
+    }
+
+    _dropLoot(monster) {
+        const isBoss = !!monster.boss;
+        const stones = isBoss ? 25 + this.state.floor * 5 : 1 + Math.floor(Math.random() * 3);
+        if (typeof window.addSpiritStones === 'function') window.addSpiritStones(stones);
+        if (isBoss && typeof window.addSectContribution === 'function') {
+            window.addSectContribution((window.SECT && window.SECT.contributionPerBoss) || 25);
+        }
+        if (typeof window.addItem !== 'function') return;
+
+        const pool = ['herb_ling', 'meat_beast', 'ore_iron'];
+        if (this.state.dungeonId === 'ember' || this.state.dungeonId === 'qingyun') pool.push('crystal_fire');
+        if (this.state.dungeonId === 'frost' || this.state.dungeonId === 'nether') pool.push('crystal_ice');
+        if (isBoss) pool.push('jade_slip', 'sect_token');
+
+        if (isBoss || Math.random() < 0.18) {
+            const itemId = isBoss
+                ? (Math.random() < 0.5 ? 'jade_slip' : 'sect_token')
+                : pool[Math.floor(Math.random() * pool.length)];
+            const def = window.getItemDef(itemId);
+            if (def && window.addItem(itemId, 1)) {
+                window.floatText(monster.x, monster.y - monster.r - 18,
+                    (def.emoji || '🎁') + ' ' + def.name, '#ffe27a');
+            }
+        }
+        if (isBoss) {
+            window.floatText(monster.x, monster.y - monster.r - 34, '💎 灵石+' + stones, '#8ef2e7');
         }
     }
 
@@ -1578,29 +1717,31 @@ class CombatSystem {
         }
     }
 
-    /**
-     * 怪物射击
-     */
-    _monsterShoot(monster, target) {
-        const dx = target.x - monster.x;
-        const dy = target.y - monster.y;
-        const dist = Math.hypot(dx, dy) || 1;
-        const speed = 220;
+    getDungeonHint() {
+        if (this.state.floorExitUnlocked) {
+            return '🏁 出口已开启：靠近出口进入下一层 · 靠近 NPC 按 E 交谈';
+        }
+        const need = Math.max(0, (this.state.floorKillTarget || 0) - (this.state.floorKills || 0));
+        const parts = [];
+        if (need > 0) parts.push('还需击败 ' + need + ' 只妖兽');
+        if (this.state.floorHasBoss && !this.state.floorBossKilled) parts.push('击败首领');
+        return '🔒 出口封印：' + (parts.join(' · ') || '清剿剩余妖兽') + ' · 靠近 NPC 按 E 交谈';
+    }
 
-        this.state.bullets.push({
-            x: monster.x,
-            y: monster.y,
-            vx: (dx / dist) * speed,
-            vy: (dy / dist) * speed,
-            r: 8,
-            dmg: monster.atk,
-            color: monster.projectileColor || '#ffb86b',
-            fromMonster: true,
-            monsterRef: monster,
-            shouldRemove: false,
-            poison: monster.poison || 0,
-            slow: monster.slow || 0
-        });
+    _checkDungeonExitUnlock() {
+        if (!this.state.dungeonWorldMode || this.state.floorExitUnlocked) return;
+        const target = this.state.floorKillTarget || 0;
+        const enough = (this.state.floorKills || 0) >= target;
+        const bossDone = !this.state.floorHasBoss || this.state.floorBossKilled;
+        if (!enough || !bossDone) return;
+        this.state.floorExitUnlocked = true;
+        window.toast('🏁 妖气消散，秘境出口开启', 'gold');
+        if (this.state.dungeonWorld && this.state.dungeonWorld.exit) {
+            this.state.effects.push({
+                type: 'boom', x: this.state.dungeonWorld.exit.x, y: this.state.dungeonWorld.exit.y,
+                color: '#7df9ff', t: 0, life: 0.8
+            });
+        }
     }
 
     /**
@@ -1616,8 +1757,21 @@ class CombatSystem {
         const dist = Math.hypot(dx, dy);
 
         if (dist < 60) {
-            // 到达出口，进入下一层
-            this.state.pendingFloorClear = true;
+            if (!this.state.floorExitUnlocked) {
+                if (this.state.time - (this.state.exitLockToastAt || 0) > 2.5) {
+                    const need = Math.max(0, (this.state.floorKillTarget || 0) - (this.state.floorKills || 0));
+                    let message = '🔒 出口被妖气封印';
+                    if (need > 0) message += '：还需击败 ' + need + ' 只妖兽';
+                    if (this.state.floorHasBoss && !this.state.floorBossKilled) {
+                        message += (need > 0 ? ' · ' : '：') + '首领未伏诛';
+                    }
+                    window.toast(message, 'bad');
+                    this.state.exitLockToastAt = this.state.time;
+                }
+                return;
+            }
+            // 到达出口，进入下一层；立即结算，避免把 pendingFloorClear 留给后续 NPC 对话误触发
+            this.state.pendingFloorClear = null;
             if (typeof window.onDungeonFloorClear === 'function') {
                 window.onDungeonFloorClear(this.state.floor);
             }

@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>修仙传说2D·第一章：灵气觉醒</title>
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
     <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -53,11 +54,14 @@
                 </div>
                 <div class="hud-mid">
                     <span id="hudCult">🌀0</span>
+                    <span id="hudStones">💎0</span>
                     <span id="hudStats">⚔️10 💨3.2 🎯5%</span>
                     <span id="hudFloor">🏰秘境</span>
                     <span id="hudAch">🏆0/9</span>
                 </div>
                 <div class="hud-right">
+                    <button id="bagBtn" class="btn-icon" title="背包">🎒</button>
+                    <button id="sectBtn" class="btn-icon" title="宗门">🏯</button>
                     <button id="muteBtn" class="btn-icon" title="音效开关">🔊</button>
                     <button id="saveBtn" class="btn-icon" title="存档">💾</button>
                     <button id="menuBtn" class="btn-icon" title="菜单">☰</button>
@@ -70,6 +74,15 @@
                     <div id="joyBase" class="joy-base"><div id="joyKnob" class="joy-knob"></div></div>
                 </div>
                 <div id="worldHint" class="world-hint">WASD / 方向键 / 摇杆移动 · 靠近人物、遗迹或擂台会触发故事</div>
+                <div id="questTracker" class="quest-tracker" aria-live="polite">
+                    <div class="quest-kicker">🎯 当前剧情</div>
+                    <div id="questTitle" class="quest-title"></div>
+                    <div class="quest-meta">
+                        <span id="questArrow" class="quest-arrow">▲</span>
+                        <span id="questLocation"></span>
+                        <span id="questDistance"></span>
+                    </div>
+                </div>
                 <button id="interactBtn" class="interact-btn">📜 触发剧情 <small>E</small></button>
                 <button id="atkBtn" class="atk-btn">⚔️</button>
             </div>
@@ -167,10 +180,66 @@
         </div>
     </div>
 
+    <!-- 背包 -->
+    <div id="inventoryOverlay" class="overlay">
+        <div class="inventory-box overlay-content">
+            <div class="panel-head">
+                <div>
+                    <h2>🎒 行囊</h2>
+                    <p class="panel-sub">丹药、材料与珍宝都在这里。秘境中也能使用丹药。</p>
+                </div>
+                <div class="panel-currency"><svg class="stone-icon" viewBox="0 0 32 32" aria-hidden="true"><use href="assets/item-icons.svg#spirit-stone" xlink:href="assets/item-icons.svg#spirit-stone"></use></svg><b id="invStones">0</b> 灵石</div>
+                <button class="btn-icon" onclick="hideOverlay('inventoryOverlay')">✕</button>
+            </div>
+            <div class="inventory-layout">
+                <div id="inventoryGrid" class="inventory-grid"></div>
+                <aside id="inventoryDetail" class="inventory-detail"></aside>
+            </div>
+        </div>
+    </div>
+
+    <!-- 宗门 -->
+    <div id="sectOverlay" class="overlay">
+        <div class="sect-box overlay-content">
+            <div class="sect-banner">
+                <img src="assets/sect-emblem.svg" alt="青云门徽记" class="sect-emblem" />
+                <div class="sect-title-wrap">
+                    <span class="sect-kicker">青云门 · 执事堂</span>
+                    <h2>宗门大殿</h2>
+                    <p id="sectRankName">外门弟子</p>
+                </div>
+                <div class="sect-resources">
+                    <span>贡献 <b id="sectContribution">0</b></span>
+                    <span>灵石 <b id="sectStones">0</b></span>
+                </div>
+                <button class="btn-icon" onclick="hideOverlay('sectOverlay')">✕</button>
+            </div>
+            <div id="sectContent" class="sect-content"></div>
+        </div>
+    </div>
+
+    <!-- 商店 -->
+    <div id="shopOverlay" class="overlay">
+        <div class="shop-box overlay-content">
+            <div class="panel-head">
+                <div>
+                    <h2 id="shopTitle">青云门·执事堂</h2>
+                    <p id="shopKeeper" class="panel-sub">掌柜：沈砺</p>
+                </div>
+                <div class="panel-currency"><svg class="stone-icon" viewBox="0 0 32 32" aria-hidden="true"><use href="assets/item-icons.svg#spirit-stone" xlink:href="assets/item-icons.svg#spirit-stone"></use></svg><b id="shopStones">0</b> 灵石</div>
+                <button class="btn-icon" onclick="hideOverlay('shopOverlay')">✕</button>
+            </div>
+            <div id="shopTabs" class="shop-tabs"></div>
+            <div id="shopContent" class="shop-content"></div>
+        </div>
+    </div>
+
     <!-- 菜单 -->
     <div id="menuOverlay" class="overlay">
         <div class="menu-box">
             <h3>⚙️ 游戏菜单</h3>
+            <button class="menu-item" onclick="showInventory()">🎒 背包</button>
+            <button class="menu-item" onclick="showSect()">🏯 宗门</button>
             <button class="menu-item" onclick="showSaveLoad()">💾 存档管理</button>
             <button class="menu-item" onclick="showAchievements()">🏆 成就</button>
             <button class="menu-item" onclick="showCodex()">📖 图鉴</button>
@@ -225,6 +294,8 @@
     <!-- 游戏数据与逻辑 -->
     <script src="js/data.js"></script>
     <script src="js/save.js"></script>
+    <script src="js/inventory.js"></script>
+    <script src="js/panels.js"></script>
     <script src="js/story.js"></script>
     <script src="js/main.js"></script>
 </body>

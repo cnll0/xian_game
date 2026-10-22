@@ -396,6 +396,10 @@ class MapGenerator {
         const kinds = options[theme] || options.ruins;
         const count = 4 + Math.floor(random() * 3);
 
+        // 入口/出口固定位置，供地标避让使用（与 Worker 版本保持一致）
+        const entry = { x: W / 2, y: H - 80 };
+        const exit = { x: W / 2, y: 80 };
+
         const solidTypes = ['ancient-tree', 'fallen-log', 'broken-wall', 'obelisk',
             'bone-pit', 'rib-cage', 'bone-pile', 'crystal-vein',
             'collapsed-shaft', 'bamboo-grove', 'basalt-island', 'ice-spines',

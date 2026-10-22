@@ -17,6 +17,8 @@ class WorldRenderer {
         let camera = world.camera;
         let p = world.player;
         let pulse = 0.5 + Math.sin(time * 2.2) * 0.5;
+        const storyId = window.G && window.G.story ? window.G.story.node : null;
+        const storyLocation = storyId && window.STORY_LOCATIONS ? window.STORY_LOCATIONS[storyId] : null;
 
         ctx.fillStyle = '#26382a';
         ctx.fillRect(0, 0, W, H);
@@ -290,6 +292,67 @@ class WorldRenderer {
                 ctx.fillStyle = '#829182'; ctx.fillRect(-62, 22, 124, 8);
             }
 
+            // 非当前剧情点也标一个小卷轴，告诉玩家“这里以后有剧情”
+            if (id !== storyId) {
+                const done = window.G && window.G.story && window.G.story.done &&
+                    window.G.story.done.indexOf(id) >= 0;
+                ctx.globalAlpha = done ? 0.5 : 0.62;
+                ctx.font = '16px "Microsoft YaHei", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = done ? '#9fbf8f' : '#e8d49a';
+                ctx.fillText(done ? '✓' : '📜', 0, -82);
+                if (p && Math.hypot(p.x - loc.x, p.y - loc.y) < 300) {
+                    ctx.font = '11px "Microsoft YaHei", sans-serif';
+                    ctx.fillText(done ? '已完成' : '剧情点', 0, -104);
+                }
+            }
+
+            ctx.restore();
+        }
+
+        // 当前主线目标：金色光柱 + 感叹号，避免玩家在大地图上找不到剧情点
+        if (storyLocation) {
+            ctx.save();
+            ctx.translate(storyLocation.x, storyLocation.y);
+            const beacon = 0.55 + pulse * 0.45;
+            const beam = ctx.createLinearGradient(0, -190, 0, 20);
+            beam.addColorStop(0, 'rgba(255,215,100,0)');
+            beam.addColorStop(0.62, 'rgba(255,215,100,' + (0.13 + beacon * 0.1) + ')');
+            beam.addColorStop(1, 'rgba(255,215,100,0)');
+            ctx.fillStyle = beam;
+            ctx.fillRect(-13, -190, 26, 210);
+
+            ctx.strokeStyle = 'rgba(255,215,100,' + (0.32 + beacon * 0.4) + ')';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.ellipse(0, 50, 68 + beacon * 10, 23 + beacon * 4, 0, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.fillStyle = '#ffd76a';
+            ctx.strokeStyle = '#6d4512';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(0, -116);
+            ctx.lineTo(22, -92);
+            ctx.lineTo(0, -68);
+            ctx.lineTo(-22, -92);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = '#3d2817';
+            ctx.font = 'bold 21px serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('!', 0, -91);
+
+            ctx.font = 'bold 13px "Microsoft YaHei", sans-serif';
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = 'rgba(10,12,10,0.82)';
+            ctx.fillStyle = '#ffe8a8';
+            ctx.strokeText(storyLocation.name, 0, -134);
+            ctx.fillText(storyLocation.name, 0, -134);
             ctx.restore();
         }
 
@@ -370,6 +433,34 @@ class WorldRenderer {
         }
         ctx.restore();
 
+        // 剧情点在屏幕外时，在屏幕边缘显示方向箭头
+        if (storyLocation && p) {
+            const zoom = WORLD_ZOOM;
+            const screenX = (storyLocation.x - camera.x) * zoom;
+            const screenY = (storyLocation.y - camera.y) * zoom;
+            const margin = 36;
+            if (screenX < margin || screenX > W - margin || screenY < margin || screenY > H - margin) {
+                const cx = MathUtils.clamp(screenX, margin, W - margin);
+                const cy = MathUtils.clamp(screenY, margin, H - margin);
+                const angle = Math.atan2(screenY - cy, screenX - cx);
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(angle);
+                ctx.fillStyle = 'rgba(255,215,100,0.92)';
+                ctx.beginPath();
+                ctx.moveTo(15, 0);
+                ctx.lineTo(-10, 9);
+                ctx.lineTo(-10, -9);
+                ctx.closePath();
+                ctx.fill();
+                ctx.restore();
+                ctx.fillStyle = '#ffe8a8';
+                ctx.font = '11px "Microsoft YaHei", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('剧情 · ' + Math.round(Math.hypot(storyLocation.x - p.x, storyLocation.y - p.y)) + 'm', cx, cy + 24);
+            }
+        }
+
     }
 
     static _drawSprite(ctx, images, key, x, y, size, world) {
@@ -406,7 +497,15 @@ class WorldRenderer {
 
     static _drawNpcSprite(ctx, images, npcId, x, y, height) {
         const sprites = images.npcSprites;
-        const index = (window.NPCS || []).findIndex(npc => npc.id === npcId);
+        const npcs = window.NPCS || [];
+        const npc = npcs.find(item => item.id === npcId);
+        const portraitIndex = {
+            ningxiao: 0, linyue: 1, shenli: 2, guqinghan: 3,
+            mochen: 4, jichang: 5, hanxing: 6
+        };
+        const portrait = (npc && npc.portrait) || npcId;
+        let index = portraitIndex[portrait];
+        if (index === undefined) index = npcs.findIndex(item => item.id === npcId);
         if (!sprites || index < 0) return false;
         const width = height * 0.8;
         ctx.drawImage(sprites, index * 128, 0, 128, 160,
@@ -418,14 +517,11 @@ class WorldRenderer {
         let ang = facing;
         while (ang <= -Math.PI) ang += 2 * Math.PI;
         while (ang > Math.PI) ang -= 2 * Math.PI;
-        if (ang >= -Math.PI / 8 && ang < Math.PI / 8) return { direction: 'west', flipH: true };
-        if (ang >= Math.PI / 8 && ang < 3 * Math.PI / 8) return { direction: 'southwest', flipH: true };
-        if (ang >= 3 * Math.PI / 8 && ang < 5 * Math.PI / 8) return { direction: 'south', flipH: false };
-        if (ang >= 5 * Math.PI / 8 && ang < 7 * Math.PI / 8) return { direction: 'southwest', flipH: false };
+        // 斜向不单独做图：上半区显示背面（上），下半区显示正面（下）
+        if (ang >= -Math.PI / 8 && ang < Math.PI / 8) return { direction: 'east', flipH: false };
+        if (ang >= Math.PI / 8 && ang < 7 * Math.PI / 8) return { direction: 'south', flipH: false };
         if (ang >= 7 * Math.PI / 8 || ang < -7 * Math.PI / 8) return { direction: 'west', flipH: false };
-        if (ang >= -7 * Math.PI / 8 && ang < -5 * Math.PI / 8) return { direction: 'northwest', flipH: false };
-        if (ang >= -5 * Math.PI / 8 && ang < -3 * Math.PI / 8) return { direction: 'north', flipH: false };
-        return { direction: 'northwest', flipH: true };
+        return { direction: 'north', flipH: false };
     }
 }
 

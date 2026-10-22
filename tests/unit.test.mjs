@@ -134,6 +134,35 @@ test('CardSystem: 诅咒至多 1 张，25% 概率插入', () => {
     Math.random = originalRandom;
 });
 
+test('CardSystem: 诅咒占用玩家/妖魔一张卡位，不生成第三列', () => {
+    window.PLAYER_CARDS = [
+        { id: 'p1', name: '玩家一', type: 'stat', effects: { atk: 1 } },
+        { id: 'p2', name: '玩家二', type: 'stat', effects: { atk: 1 } },
+        { id: 'p3', name: '玩家三', type: 'stat', effects: { atk: 1 } },
+        { id: 'pc', name: '玩家诅咒', type: 'cursed', curseTier: 'minor', effects: {}, curseGift: { curseSoulHarvest: 0.01 } }
+    ];
+    window.MONSTER_CARDS = [
+        { id: 'm1', name: '妖魔一', type: 'stat', effects: { hpMul: 1.1 } },
+        { id: 'mc', name: '妖魔诅咒', type: 'cursed', curseTier: 'major', effects: {}, curseGift: { curseFrenzy: 0.1 } }
+    ];
+    const state = { runtime: { cards: { player: {}, monster: {} }, floor: 1 } };
+    const system = new CardSystem(state, { emit() {} });
+    system._pendingPlayerCards = window.PLAYER_CARDS.slice(0, 3).map(c => Object.assign({}, c, { selected: false }));
+    system._pendingMonsterCards = [Object.assign({}, window.MONSTER_CARDS[0], { selected: false })];
+    system._pendingCurseCards = [];
+
+    const originalRandom = Math.random;
+    Math.random = () => 0.1;
+    const occupied = system._attachCurseCard();
+    Math.random = originalRandom;
+
+    assert.equal(occupied.side, 'player');
+    assert.equal(system._pendingPlayerCards.length, 3);
+    assert.equal(system._pendingPlayerCards.filter(c => c.curseOccupied).length, 1);
+    assert.equal(system._pendingPlayerCards[0].id, 'pc');
+    assert.equal(system._pendingCurseCards.length, 0);
+});
+
 test('AssetLoader: 加载 / 缓存 / 失败返回 null', async () => {
     const loader = new AssetLoader();
     const img = await loader.loadImage('a', 'a.png');
